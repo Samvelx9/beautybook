@@ -118,6 +118,9 @@ export const api = {
 
   // The platform operator's screen.
   getPlatformMasters: () => request('/platform/masters'),
+  getPlatformMaster: (id) => request(`/platform/masters/${id}`),
+  changeOperatorPassword: (currentPassword, newPassword) =>
+    request('/platform/password', json('POST', { currentPassword, newPassword })),
   updatePlatformMaster: (id, payload) => request(`/platform/masters/${id}`, json('PATCH', payload)),
   resetMasterPassword: (id) => request(`/platform/masters/${id}/reset-password`, { method: 'POST' }),
 };

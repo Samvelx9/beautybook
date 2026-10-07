@@ -463,6 +463,72 @@ test('platform screens are for the platform admin only', async () => {
   tokenB = login.body.token;
 });
 
+test("the operator sees one master in depth, without their clients' details", async () => {
+  const list = await call('GET', '/platform/masters', { token: tokenA });
+  const anna = list.body.find((m) => m.slug === 'anna');
+
+  const detail = await call('GET', `/platform/masters/${anna.id}`, { token: tokenA });
+  assert.equal(detail.status, 200, JSON.stringify(detail.body));
+  const { master, categories, stats, monthly } = detail.body;
+  assert.equal(master.slug, 'anna');
+  assert.equal(master.email, 'anna@example.com');
+
+  // The zone booked and completed earlier shows what it sold.
+  const zone = categories.flatMap((c) => c.services).find((s) => s.id === zoneA.serviceId);
+  assert.deepEqual({ bookings: zone.bookings, completed: zone.completed, revenue: zone.revenue }, { bookings: 1, completed: 1, revenue: 5000 });
+  // The template's zones are listed too, hidden and unpriced.
+  assert.ok(categories.flatMap((c) => c.services).some((s) => !s.is_active && s.price === 0));
+
+  assert.equal(stats.total, 1);
+  assert.equal(stats.byStatus.completed, 1);
+  assert.equal(stats.revenue, 5000);
+  assert.equal(stats.online, 1);
+  assert.equal(stats.clients, 1);
+  assert.equal(stats.completionRate, 1);
+  assert.equal(monthly.length, 6);
+
+  // Aggregates only: no client's name or phone anywhere in the answer.
+  const raw = JSON.stringify(detail.body);
+  for (const needle of ['+37400000001', '"Guest"']) {
+    assert.ok(!raw.includes(needle), `client details leaked: ${needle} in ${raw.slice(Math.max(0, raw.indexOf(needle) - 80), raw.indexOf(needle) + 40)}`);
+  }
+
+  assert.equal((await call('GET', '/platform/masters/999999', { token: tokenA })).status, 404);
+  assert.equal((await call('GET', `/platform/masters/${anna.id}`, { token: tokenB })).status, 403);
+});
+
+test('an operator with no booking page can change their password', async () => {
+  await db.query(
+    `INSERT INTO users (email, password_hash, is_platform_admin)
+     VALUES ('operator', $1, true)`,
+    [(await import('bcryptjs')).default.hashSync('operator password 1', 4)]
+  );
+  const login = await call('POST', '/auth/login', { body: { email: 'operator', password: 'operator password 1' } });
+  assert.equal(login.status, 200);
+  assert.equal((await call('GET', '/admin/account', { token: login.body.token })).body.error, 'no_master');
+
+  const weak = await call('POST', '/platform/password', {
+    token: login.body.token,
+    body: { currentPassword: 'operator password 1', newPassword: 'short' },
+  });
+  assert.equal(weak.body.error, 'weak_password');
+  const wrong = await call('POST', '/platform/password', {
+    token: login.body.token,
+    body: { currentPassword: 'not it', newPassword: 'operator password 2' },
+  });
+  assert.equal(wrong.status, 403);
+
+  const changed = await call('POST', '/platform/password', {
+    token: login.body.token,
+    body: { currentPassword: 'operator password 1', newPassword: 'operator password 2' },
+  });
+  assert.equal(changed.status, 200);
+  assert.equal((await call('GET', '/platform/masters', { token: login.body.token })).status, 401);
+  assert.equal((await call('GET', '/platform/masters', { token: changed.body.token })).status, 200);
+  const relogin = await call('POST', '/auth/login', { body: { email: 'operator', password: 'operator password 2' } });
+  assert.equal(relogin.status, 200);
+});
+
 test('changing the password ends other sessions', async () => {
   const wrong = await call('POST', '/admin/account/password', {
     token: tokenB,

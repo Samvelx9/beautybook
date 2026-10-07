@@ -6,6 +6,7 @@ import { cleanString } from '../lib/validate.js';
 import { rateLimit } from '../lib/rateLimit.js';
 import { isValidTimeZone, DEFAULT_TIMEZONE } from '../lib/time.js';
 import { signToken } from '../middleware/auth.js';
+import { MIN_PASSWORD_LENGTH } from '../services/accounts.js';
 import { createMaster, getMasterById, slugProblem } from '../services/masters.js';
 import { applyTemplate, templateList, TEMPLATES } from '../services/templates.js';
 
@@ -14,7 +15,6 @@ export const authRouter = Router();
 
 const LANGS = ['hy', 'ru', 'en'];
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-export const MIN_PASSWORD_LENGTH = 8;
 
 const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 12);
 

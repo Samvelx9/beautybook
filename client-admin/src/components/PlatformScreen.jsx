@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api.js';
 import { formatDate } from '../i18n.js';
+import { routeParam, setRouteParams } from '../route.js';
+import MasterDetail from './MasterDetail.jsx';
 
 const STATUS_COLOR = {
   trial: 'var(--sage)',
@@ -18,6 +20,15 @@ const STATUS_COLOR = {
 export default function PlatformScreen({ T, lang, onAuthError }) {
   const [masters, setMasters] = useState(null);
   const [error, setError] = useState(null);
+  // The master being looked at in detail, kept in the URL so a reload stays there.
+  const [openId, setOpenId] = useState(() => {
+    const value = routeParam('master', (v) => /^\d+$/.test(v), null);
+    return value === null ? null : Number(value);
+  });
+
+  useEffect(() => {
+    setRouteParams({ master: openId });
+  }, [openId]);
 
   async function load() {
     try {
@@ -32,29 +43,67 @@ export default function PlatformScreen({ T, lang, onAuthError }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function act(fn) {
+  async function act(fn, reload = load) {
     setError(null);
     try {
       await fn();
-      await load();
+      await reload();
     } catch (err) {
       if (!onAuthError(err)) setError(err instanceof ApiError && T[err.code] ? err.code : 'genericError');
     }
   }
 
-  const resetPassword = (m) =>
+  const resetPassword = (m, reload) =>
     act(async () => {
       if (!window.confirm(T.confirmResetPassword)) return;
       const { password } = await api.resetMasterPassword(m.id);
       window.alert(T.newPasswordIs(password));
-    });
+    }, reload);
 
-  const setDomain = (m) =>
+  const setDomain = (m, reload) =>
     act(async () => {
       const value = window.prompt(T.domainPrompt, m.customDomain ?? '');
       if (value === null) return;
       await api.updatePlatformMaster(m.id, { customDomain: value.trim() || null });
-    });
+    }, reload);
+
+  // The same buttons on a master's card and on their detail page; `reload`
+  // refreshes whichever of the two is showing. `state` is the master's access
+  // state, which decides Suspend vs Unsuspend.
+  const actions = (m, reload = load) => {
+    const state = m.access.state;
+    return (
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <button className="btn-outline" onClick={() => act(() => api.updatePlatformMaster(m.id, { extendTrialDays: 7 }), reload)}>
+          {T.extendTrialBtn}
+        </button>
+        <button className="btn-outline" onClick={() => setDomain(m, reload)}>{T.customDomainBtn}</button>
+        <button className="btn-outline" onClick={() => resetPassword(m, reload)}>{T.resetPasswordBtn}</button>
+        <button
+          className={state === 'suspended' ? 'btn-outline' : 'btn-danger-outline'}
+          onClick={() => act(() => api.updatePlatformMaster(m.id, { suspended: state !== 'suspended' }), reload)}
+        >
+          {state === 'suspended' ? T.unsuspendBtn : T.suspendBtn}
+        </button>
+      </div>
+    );
+  };
+
+  if (openId !== null) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {error && <p role="alert" style={{ margin: 0, fontSize: 13, color: 'var(--terracotta)' }}>{T[error]}</p>}
+        <MasterDetail
+          T={T}
+          lang={lang}
+          masterId={openId}
+          onBack={() => { setOpenId(null); load(); }}
+          onAuthError={onAuthError}
+          actions={actions}
+        />
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -74,7 +123,12 @@ export default function PlatformScreen({ T, lang, onAuthError }) {
           {masters.map((m) => (
             <div key={m.id} className="card" style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 220, flex: '1 1 260px' }}>
-                <span style={{ fontFamily: "'Newsreader',serif", fontSize: 17 }}>{m.name || m.slug}</span>
+                <button
+                  onClick={() => setOpenId(m.id)}
+                  style={{ fontFamily: "'Newsreader',serif", fontSize: 17, textAlign: 'left', padding: 0, color: 'var(--ink)' }}
+                >
+                  {m.name || m.slug}
+                </button>
                 <a href={m.siteUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>
                   {m.siteUrl.replace(/^https?:\/\//, '')}
                 </a>
@@ -96,17 +150,8 @@ export default function PlatformScreen({ T, lang, onAuthError }) {
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <button className="btn-outline" onClick={() => act(() => api.updatePlatformMaster(m.id, { extendTrialDays: 7 }))}>
-                  {T.extendTrialBtn}
-                </button>
-                <button className="btn-outline" onClick={() => setDomain(m)}>{T.customDomainBtn}</button>
-                <button className="btn-outline" onClick={() => resetPassword(m)}>{T.resetPasswordBtn}</button>
-                <button
-                  className={m.access.state === 'suspended' ? 'btn-outline' : 'btn-danger-outline'}
-                  onClick={() => act(() => api.updatePlatformMaster(m.id, { suspended: m.access.state !== 'suspended' }))}
-                >
-                  {m.access.state === 'suspended' ? T.unsuspendBtn : T.suspendBtn}
-                </button>
+                <button className="btn-primary" onClick={() => setOpenId(m.id)}>{T.viewDetails}</button>
+                {actions(m)}
               </div>
             </div>
           ))}

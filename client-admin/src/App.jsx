@@ -16,6 +16,7 @@ import ProfileScreen from './components/ProfileScreen.jsx';
 import CategoriesScreen from './components/CategoriesScreen.jsx';
 import SettingsScreen from './components/SettingsScreen.jsx';
 import PlatformScreen from './components/PlatformScreen.jsx';
+import OperatorSettingsScreen from './components/OperatorSettingsScreen.jsx';
 
 const SCREENS = {
   dashboard: DashboardScreen,
@@ -134,11 +135,17 @@ export default function App() {
   }
 
   const tabs = account.platformOnly
-    ? ['platform']
+    ? ['platform', 'settings']
     : ['dashboard', 'bookings', 'categories', 'services', 'availability', 'profile', 'settings',
        ...(account.isPlatformAdmin ? ['platform'] : [])];
   const current = tabs.includes(tab) ? tab : tabs[0];
-  const Screen = SCREENS[current];
+  // Arriving from the login or sign-up page (or an old link), the address bar
+  // still names that page; it's replaced with the screen actually showing.
+  if (current !== tab) {
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${current}`);
+  }
+  // An operator with no booking page has their own, much shorter Settings.
+  const Screen = current === 'settings' && account.platformOnly ? OperatorSettingsScreen : SCREENS[current];
 
   return (
     <AdminLayout

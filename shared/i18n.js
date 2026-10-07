@@ -91,10 +91,16 @@ export function currencySymbol() {
   return CURRENCY_SYMBOL[currency] ?? currency;
 }
 
-export function formatPrice(amount, lang) {
-  const symbol = currencySymbol();
-  const number = amount.toLocaleString(LOCALE_TAG[lang]);
+// An amount in a given currency — for screens that show several masters'
+// money side by side (the operator's), where the one set currency won't do.
+export function formatAmount(amount, lang, code) {
+  const symbol = CURRENCY_SYMBOL[code] ?? code;
+  const number = Number(amount).toLocaleString(LOCALE_TAG[lang]);
   return ['$', '£'].includes(symbol) ? `${symbol}${number}` : `${number} ${symbol}`;
+}
+
+export function formatPrice(amount, lang) {
+  return formatAmount(amount, lang, currency);
 }
 
 // A name in the language asked for, or in whichever language the master did

@@ -2,7 +2,7 @@ import { Router, raw } from 'express';
 import bcrypt from 'bcryptjs';
 import { pool } from '../db.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
-import { requireMasterAuth, signToken } from '../middleware/auth.js';
+import { requireMasterAuth } from '../middleware/auth.js';
 import { cleanString, isValidDate, isValidTime } from '../lib/validate.js';
 import {
   todayDateStr,
@@ -35,7 +35,8 @@ import {
 import { getBotUsername, telegramToken } from '../services/telegram.js';
 import { billingConfig, createCheckout } from '../services/billing.js';
 import { applyTemplate, TEMPLATES } from '../services/templates.js';
-import { MIN_PASSWORD_LENGTH, readCurrency, readLanguages } from './auth.js';
+import { readCurrency, readLanguages } from './auth.js';
+import { changeOwnPassword } from '../services/accounts.js';
 
 // A master's own admin panel. `requireMasterAuth` sets `req.master` from the
 // logged-in user, and every query below is scoped to `req.master.id` — an id
@@ -148,22 +149,9 @@ adminRouter.patch('/account/settings', asyncHandler(async (req, res) => {
 }));
 
 adminRouter.post('/account/password', asyncHandler(async (req, res) => {
-  const current = typeof req.body?.currentPassword === 'string' ? req.body.currentPassword : '';
-  const next = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
-  if (next.length < MIN_PASSWORD_LENGTH || next.length > 200) {
-    return res.status(400).json({ error: 'weak_password', minLength: MIN_PASSWORD_LENGTH });
-  }
-  const { rows } = await pool.query('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
-  if (!rows[0] || !(await bcrypt.compare(current, rows[0].password_hash))) {
-    return res.status(403).json({ error: 'wrong_password' });
-  }
-  // Bumping token_version ends every other session; this one gets a new token.
-  const { rows: updated } = await pool.query(
-    `UPDATE users SET password_hash = $2, token_version = token_version + 1
-     WHERE id = $1 RETURNING id, token_version`,
-    [req.user.id, await bcrypt.hash(next, 12)]
-  );
-  res.json({ token: signToken(updated[0]) });
+  const result = await changeOwnPassword(req.user.id, req.body?.currentPassword, req.body?.newPassword);
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  res.json({ token: result.token });
 }));
 
 // Deleting the account removes the master and everything they own (the
