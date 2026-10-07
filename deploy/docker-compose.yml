@@ -1,0 +1,18 @@
+# The platform's backend, next to (not inside) any other stack on the VM. Lives at
+# /opt/beautybook/docker-compose.yml on the VM; secrets in /opt/beautybook/.env
+# (see server/.env.example). Joins the shared nginx network.
+services:
+  backend:
+    build:
+      context: ./repo/server
+    container_name: beautybook-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      - web
+
+networks:
+  web:
+    external: true
+    name: nginx-setup_web

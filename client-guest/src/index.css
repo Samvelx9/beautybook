@@ -1,0 +1,90 @@
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,500&family=Karla:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg: oklch(97% 0.015 85);
+  --surface: oklch(99% 0.008 85);
+  --ink: oklch(27% 0.02 90);
+  --muted: oklch(53% 0.02 90);
+  --sage: oklch(52% 0.07 155);
+  --sage-light: oklch(91% 0.035 150);
+  --terracotta: oklch(60% 0.13 45);
+  --terracotta-light: oklch(93% 0.035 50);
+  --line: oklch(89% 0.012 85);
+  --white: oklch(99% 0 0);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+body {
+  font-family: 'Karla', sans-serif;
+  color: var(--ink);
+}
+
+h1,
+h2,
+h3 {
+  font-family: 'Newsreader', serif;
+  margin: 0;
+}
+
+a {
+  color: var(--sage);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--terracotta);
+}
+
+button {
+  font-family: 'Karla', sans-serif;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+input {
+  font-family: 'Karla', sans-serif;
+}
+
+.scrollarea {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollarea::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+#root {
+  min-height: 100dvh;
+  display: flex;
+  justify-content: center;
+}
+
+.app-shell {
+  width: 100%;
+  max-width: 480px;
+  min-height: 100dvh;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  color: var(--ink);
+}
+
+@media (min-width: 481px) {
+  .app-shell {
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.06);
+  }
+}

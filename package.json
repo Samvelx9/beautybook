@@ -1,0 +1,16 @@
+{
+  "name": "beautybook",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "server",
+    "client-guest",
+    "client-admin"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev --workspace server",
+    "dev:guest": "npm run dev --workspace client-guest",
+    "dev:admin": "npm run dev --workspace client-admin -- --port 5174",
+    "migrate:up": "npm run migrate:up --workspace server"
+  }
+}

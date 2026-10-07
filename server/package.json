@@ -1,0 +1,26 @@
+{
+  "name": "beautybook-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "migrate": "dotenv -e .env -- node-pg-migrate",
+    "migrate:up": "dotenv -e .env -- node-pg-migrate up",
+    "migrate:down": "dotenv -e .env -- node-pg-migrate down",
+    "create-platform-admin": "node scripts/create-platform-admin.js",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "dotenv-cli": "^7.4.4",
+    "node-pg-migrate": "^9.0.0"
+  }
+}

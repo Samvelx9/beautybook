@@ -1,0 +1,69 @@
+# The platform on the shared nginx container — rendered by install.sh with
+# __DOMAIN__ replaced. Other sites' configs are not touched.
+#
+#   __DOMAIN__ and www  → the app (welcome page, sign-up, admin panels)
+#   app.__DOMAIN__      → the same app
+#   <slug>.__DOMAIN__   → that master's booking page (the guest app)
+#
+# One wildcard certificate (*.__DOMAIN__ + __DOMAIN__) covers all of it; it
+# needs a DNS challenge — see deploy/README.md.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name __DOMAIN__ .__DOMAIN__;
+    location ^~ /.well-known/acme-challenge/ {
+        root /usr/share/nginx/html;
+        default_type "text/plain";
+        try_files $uri =404;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+map $host $bb_root {
+    __DOMAIN__        /usr/share/nginx/html/beautybook/admin;
+    www.__DOMAIN__    /usr/share/nginx/html/beautybook/admin;
+    app.__DOMAIN__    /usr/share/nginx/html/beautybook/admin;
+    default           /usr/share/nginx/html/beautybook/guest;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name __DOMAIN__ .__DOMAIN__;
+
+    ssl_certificate     /etc/letsencrypt/live/__DOMAIN__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__DOMAIN__/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options    "nosniff" always;
+    add_header X-Frame-Options           "SAMEORIGIN" always;
+    add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
+
+    client_max_body_size 5m;
+
+    # The API resolves whose page a request is for from X-Forwarded-Host, so
+    # it must be the host the visitor actually used.
+    location /api/ {
+        proxy_pass http://beautybook-backend:4000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    root $bb_root;
+    index index.html;
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
