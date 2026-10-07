@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly Postgres backups
+
+[Timer]
+# 23:30 UTC = 03:30 in Yerevan; a night missed while the server was off runs
+# as soon as it's back.
+OnCalendar=*-*-* 23:30:00 UTC
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Back up every database on the Postgres container
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/pg-backup
+Nice=10
+IOSchedulingClass=idle
