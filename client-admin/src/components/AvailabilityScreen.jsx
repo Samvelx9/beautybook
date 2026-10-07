@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
-import { WEEKDAY_FULL, parseLocalDate, formatDate, formatNotice } from '../i18n.js';
+import { WEEKDAY_FULL, parseLocalDate, formatDate, formatNotice, formatWindow } from '../i18n.js';
 import { todayLocalStr } from 'salon-shared/time';
 
 // Today in the master's own timezone, not the browser's.
@@ -343,21 +343,23 @@ export default function AvailabilityScreen({ T, lang, onAuthError, account, refr
   );
 }
 
-// The same list the server accepts (MIN_NOTICE_CHOICES in services/availability.js).
+// The same lists the server accepts (MIN_NOTICE_CHOICES and
+// BOOKING_WINDOW_CHOICES in services/availability.js).
 const NOTICE_CHOICES = [0, 15, 30, 45, 60, 90, 120, 180, 240, 360, 720, 1440, 2880];
+const WINDOW_CHOICES = [7, 14, 21, 30, 60, 90];
 
-// How far ahead guests must book. Saved as soon as it's picked — one setting,
-// no form to fill in around it.
+// When guests may book: how far ahead at the least, and how far into the
+// future at the most. Each saves as soon as it's picked.
 function NoticeSection({ T, lang, account, refreshAccount, onAuthError }) {
-  const current = account.master.minNoticeMinutes;
+  const { minNoticeMinutes, bookingWindowDays } = account.master;
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null); // 'settingsSaved' | 'genericError'
 
-  async function choose(minutes) {
+  async function choose(fields) {
     setSaving(true);
     setMessage(null);
     try {
-      await api.updateSettings({ minNoticeMinutes: minutes });
+      await api.updateSettings(fields);
       await refreshAccount();
       setMessage('settingsSaved');
     } catch (err) {
@@ -371,14 +373,14 @@ function NoticeSection({ T, lang, account, refreshAccount, onAuthError }) {
     <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <h3 style={{ fontSize: 16, fontWeight: 600 }}>{T.noticeSection}</h3>
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 14 }}>
-          {T.noticeLabel}
+        <div style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', alignItems: 'center', gap: '10px 12px', fontSize: 14, maxWidth: 560 }}>
+          <label htmlFor="min-notice">{T.noticeLabel}</label>
           <select
+            id="min-notice"
             className="field-input"
-            style={{ width: 'auto', minWidth: 240 }}
-            value={current}
+            value={minNoticeMinutes}
             disabled={saving}
-            onChange={(e) => choose(Number(e.target.value))}
+            onChange={(e) => choose({ minNoticeMinutes: Number(e.target.value) })}
           >
             {NOTICE_CHOICES.map((m) => (
               <option key={m} value={m}>
@@ -386,12 +388,24 @@ function NoticeSection({ T, lang, account, refreshAccount, onAuthError }) {
               </option>
             ))}
           </select>
-          {message && (
-            <span role="status" style={{ fontSize: 13, color: message === 'settingsSaved' ? 'var(--sage)' : 'var(--terracotta)' }}>
-              {T[message]}
-            </span>
-          )}
-        </label>
+          <label htmlFor="booking-window">{T.windowLabel}</label>
+          <select
+            id="booking-window"
+            className="field-input"
+            value={bookingWindowDays}
+            disabled={saving}
+            onChange={(e) => choose({ bookingWindowDays: Number(e.target.value) })}
+          >
+            {WINDOW_CHOICES.map((d) => (
+              <option key={d} value={d}>{T.windowChoice(formatWindow(d, lang))}</option>
+            ))}
+          </select>
+        </div>
+        {message && (
+          <span role="status" style={{ fontSize: 13, color: message === 'settingsSaved' ? 'var(--sage)' : 'var(--terracotta)' }}>
+            {T[message]}
+          </span>
+        )}
         <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--muted)' }}>{T.noticeHint}</p>
       </div>
     </section>

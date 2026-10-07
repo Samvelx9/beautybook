@@ -40,11 +40,12 @@ const INITIAL_FLOW_STATE = {
   busy: false,
 };
 
+// The answers that mean "pick another time" rather than "something broke":
+// the calendar reloads and the guest chooses again.
+const RETRY_CODES = { slot_taken: 'slotTaken', too_soon: 'tooSoon', too_far: 'tooFar' };
+
 function errorKeyFor(err) {
-  if (err instanceof ApiError && (err.code === 'slot_taken' || err.code === 'too_soon')) {
-    return err.code === 'slot_taken' ? 'slotTaken' : 'tooSoon';
-  }
-  return 'genericError';
+  return (err instanceof ApiError && RETRY_CODES[err.code]) || 'genericError';
 }
 
 export function useBookingFlow() {
@@ -333,7 +334,7 @@ export function useBookingFlow() {
         telegramOpened: false,
       });
     } catch (err) {
-      if (err instanceof ApiError && (err.code === 'slot_taken' || err.code === 'too_soon')) {
+      if (err instanceof ApiError && RETRY_CODES[err.code]) {
         patch({ busy: false, step: 'calendar', selectedSlot: null, bannerErrorKey: errorKeyFor(err) });
         loadSlots({ durationMinutes: basket.minutes, keepDay: true });
       } else {
@@ -438,7 +439,7 @@ export function useBookingFlow() {
         },
       });
     } catch (err) {
-      if (err instanceof ApiError && (err.code === 'slot_taken' || err.code === 'too_soon')) {
+      if (err instanceof ApiError && RETRY_CODES[err.code]) {
         patch({ busy: false, selectedSlot: null, bannerErrorKey: errorKeyFor(err) });
         const booked = flow.activeBooking;
         loadSlots({

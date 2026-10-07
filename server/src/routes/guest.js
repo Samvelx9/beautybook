@@ -5,6 +5,7 @@ import {
   getAvailableSlots,
   isSlotWithinAvailability,
   earliestBookable,
+  lastBookableDate,
 } from '../services/availability.js';
 import { localToUtc, addMinutes } from '../lib/time.js';
 import {
@@ -62,6 +63,7 @@ guestRouter.get('/site', (req, res) => {
     currency: m.currency,
     timezone: m.timezone,
     minNoticeMinutes: m.min_notice_minutes,
+    bookingWindowDays: m.booking_window_days,
     open: hasAccess(m),
   });
 });
@@ -276,6 +278,11 @@ guestRouter.post('/bookings', bookingLimit, requireOpenPage, asyncHandler(async 
   if (startTime < earliestBookable(master)) {
     return res.status(400).json({ error: 'too_soon', minNoticeMinutes: master.min_notice_minutes });
   }
+  // The page only offers days inside the window, but the API is open to
+  // anyone — so the window is enforced here, not just in the picker.
+  if (date > lastBookableDate(master)) {
+    return res.status(400).json({ error: 'too_far', bookingWindowDays: master.booking_window_days });
+  }
 
   // A copy of this same request that got in first is what makes the slot look
   // taken, so the key is checked again before refusing.
@@ -441,6 +448,11 @@ guestRouter.post('/bookings/:id/reschedule', lookupLimit, requireOpenPage, async
 
   if (startTime < earliestBookable(master)) {
     return res.status(400).json({ error: 'too_soon', minNoticeMinutes: master.min_notice_minutes });
+  }
+  // The page only offers days inside the window, but the API is open to
+  // anyone — so the window is enforced here, not just in the picker.
+  if (date > lastBookableDate(master)) {
+    return res.status(400).json({ error: 'too_far', bookingWindowDays: master.booking_window_days });
   }
 
   if (!(await isSlotWithinAvailability(master, date, startTime, endTime))) {

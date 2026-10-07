@@ -1,4 +1,4 @@
-import { dayLabel, parseLocalDate, formatNotice, getMinNotice } from '../i18n.js';
+import { MONTH_SHORT, dayLabel, parseLocalDate, formatNotice, getMinNotice } from '../i18n.js';
 
 // A taken time is shown, struck through and unclickable, rather than left out:
 // a grid that jumps from 14:30 to 16:00 looks broken, while a greyed 15:00 says
@@ -54,6 +54,13 @@ export default function SlotPicker({ T, lang, slotsData, slotsLoading, selectedD
               <span style={{ fontSize: 15, fontWeight: 600, color: selected ? 'var(--white)' : 'var(--ink)' }}>
                 {dateObj.getDate()}
               </span>
+              {/* Past a week the bare day number is ambiguous, so the month
+                  is shown where it starts (and on the first day). */}
+              {days.length > 7 && (index === 0 || dateObj.getDate() === 1) && (
+                <span style={{ fontSize: 10, color: selected ? 'var(--white)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
+                  {MONTH_SHORT[lang][dateObj.getMonth()]}
+                </span>
+              )}
             </button>
           );
         })}

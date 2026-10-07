@@ -4,8 +4,10 @@
 // string is replaced with the platform's domain where it's shown.
 export const PLATFORM_STRINGS = {
   en: {
-    noticeSection: 'Booking notice',
-    noticeHint: "How far ahead clients must book. Closer times show as unavailable on your page, and moving a booking follows the same rule. Bookings you add yourself aren't affected.",
+    windowLabel: 'and',
+    windowChoice: (w) => `up to ${w} ahead`,
+    noticeSection: 'When clients can book',
+    noticeHint: "How far ahead clients must book, and how far into the future they can. Times outside these limits show as unavailable on your page, and moving a booking follows the same rules. Bookings you add yourself aren't affected.",
     noticeLabel: 'Clients can book',
     noticeNone: 'Any time — no notice needed',
     noticeBefore: (d) => `at least ${d} ahead`,
@@ -189,8 +191,10 @@ export const PLATFORM_STRINGS = {
   },
 
   ru: {
-    noticeSection: 'Минимальное время до записи',
-    noticeHint: 'За сколько времени до визита клиенты должны записываться. Более близкое время на вашей странице будет недоступно; перенос записи подчиняется тому же правилу. Записи, которые вы добавляете сами, это не затрагивает.',
+    windowLabel: 'и',
+    windowChoice: (w) => `не более чем на ${w} вперёд`,
+    noticeSection: 'Когда клиенты могут записываться',
+    noticeHint: 'За сколько времени до визита клиенты должны записываться и на сколько вперёд могут. Время вне этих рамок на вашей странице будет недоступно; перенос записи подчиняется тем же правилам. Записи, которые вы добавляете сами, это не затрагивает.',
     noticeLabel: 'Клиенты могут записаться',
     noticeNone: 'В любое время — без ограничений',
     noticeBefore: (d) => `не позднее чем за ${d}`,
@@ -374,8 +378,10 @@ export const PLATFORM_STRINGS = {
   },
 
   hy: {
-    noticeSection: 'Գրանցման նվազագույն ժամկետ',
-    noticeHint: 'Այցից որքան առաջ պետք է գրանցվեն հաճախորդները։ Ավելի մոտ ժամերը ձեր էջում անհասանելի կլինեն, իսկ գրանցման տեղափոխումը ենթարկվում է նույն կանոնին։ Ձեր կողմից ավելացված գրանցումների վրա դա չի ազդում։',
+    windowLabel: 'և',
+    windowChoice: (w) => `ոչ ավելի, քան ${w} առաջ`,
+    noticeSection: 'Երբ կարող են գրանցվել հաճախորդները',
+    noticeHint: 'Այցից որքան առաջ պետք է գրանցվեն հաճախորդները և որքան առաջ կարող են։ Այս սահմաններից դուրս ժամերը ձեր էջում անհասանելի կլինեն, իսկ գրանցման տեղափոխումը ենթարկվում է նույն կանոններին։ Ձեր կողմից ավելացված գրանցումների վրա դա չի ազդում։',
     noticeLabel: 'Հաճախորդները կարող են գրանցվել',
     noticeNone: 'Ցանկացած պահի՝ առանց սահմանափակման',
     noticeBefore: (d) => `առնվազն ${d} առաջ`,

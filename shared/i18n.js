@@ -177,3 +177,17 @@ export function formatNotice(minutes, lang) {
   return `${minutes} minutes`;
 }
 
+// A booking window in words — "2 weeks", "1 месяц", "3 ամիս" — for one of the
+// fixed choices: 7, 14 or 21 days (weeks) or 30, 60 or 90 days (months).
+export function formatWindow(days, lang) {
+  const monthly = days % 30 === 0;
+  const n = monthly ? days / 30 : days / 7;
+  if (lang === 'ru') {
+    if (monthly) return n === 1 ? '1 месяц' : `${n} месяца`;
+    return n === 1 ? '1 неделю' : `${n} недели`;
+  }
+  if (lang === 'hy') return `${n} ${monthly ? 'ամիս' : 'շաբաթ'}`;
+  if (monthly) return n === 1 ? '1 month' : `${n} months`;
+  return n === 1 ? '1 week' : `${n} weeks`;
+}
+

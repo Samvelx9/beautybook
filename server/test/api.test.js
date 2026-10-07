@@ -608,3 +608,49 @@ test("each master sets their own minimum booking notice", async () => {
   const open = await call('GET', '/slots?durationMinutes=30', { slug: 'notice' });
   assert.ok(open.body.days.some((d) => d.slots.length > 0));
 });
+
+test('each master sets how far ahead clients can book, and the API enforces it', async () => {
+  const token = await signup('window');
+  const zone = await makeZone(token);
+  const site = await call('GET', '/site', { slug: 'window' });
+  assert.equal(site.body.bookingWindowDays, 7);
+  assert.equal((await call('GET', '/slots?durationMinutes=30', { slug: 'window' })).body.days.length, 7);
+
+  // A Tuesday (open 10:00–19:00 by default) 8–14 days out, in the master's timezone.
+  const { rows } = await db.query(
+    `SELECT to_char(d, 'YYYY-MM-DD') AS d FROM generate_series(
+       (now() AT TIME ZONE 'Asia/Yerevan')::date + 8, (now() AT TIME ZONE 'Asia/Yerevan')::date + 14, interval '1 day') d
+     WHERE extract(isodow FROM d) = 2`
+  );
+  const later = rows[0].d;
+  const body = { date: later, time: '11:00', customerName: 'W', customerPhone: '7', items: [{ serviceId: zone.serviceId }] };
+
+  // Outside the default week: refused, even though the page never offers it.
+  const far = await call('POST', '/bookings', { slug: 'window', body });
+  assert.equal(far.status, 400);
+  assert.deepEqual(far.body, { error: 'too_far', bookingWindowDays: 7 });
+
+  assert.equal(
+    (await call('PATCH', '/admin/account/settings', { token, body: { bookingWindowDays: 45 } })).body.error,
+    'invalid_booking_window'
+  );
+  const set = await call('PATCH', '/admin/account/settings', { token, body: { bookingWindowDays: 30 } });
+  assert.equal(set.body.master.bookingWindowDays, 30);
+  assert.equal((await call('GET', '/slots?durationMinutes=30', { slug: 'window' })).body.days.length, 30);
+
+  // Inside the 30-day window the same booking goes through, and can't be
+  // moved beyond it.
+  const ok = await call('POST', '/bookings', { slug: 'window', body });
+  assert.equal(ok.status, 201, JSON.stringify(ok.body));
+  const { rows: beyond } = await db.query(
+    `SELECT to_char((now() AT TIME ZONE 'Asia/Yerevan')::date + 40, 'YYYY-MM-DD') AS d`
+  );
+  const moved = await call('POST', `/bookings/${ok.body.id}/reschedule`, {
+    slug: 'window',
+    body: { date: beyond[0].d, time: '11:00', token: ok.body.guestToken },
+  });
+  assert.equal(moved.body.error, 'too_far');
+
+  // Other masters keep their own window.
+  assert.equal((await call('GET', '/site', { slug: 'anna' })).body.bookingWindowDays, 7);
+});

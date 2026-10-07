@@ -8,8 +8,17 @@ import {
   addMinutes,
 } from '../lib/time.js';
 
-export const DAYS_AHEAD = 7;
 export const SLOT_INTERVAL_MINUTES = 30;
+
+// How many days ahead guests can book, counting today (masters.booking_window_days).
+export const BOOKING_WINDOW_CHOICES = [7, 14, 21, 30, 60, 90];
+const windowDays = (master) => master.booking_window_days ?? 7;
+
+// The last local date a guest may book on, as 'YYYY-MM-DD' — comparable as a
+// string with the date a booking request names.
+export function lastBookableDate(master) {
+  return addDaysToDateStr(todayDateStr(master.timezone), windowDays(master) - 1);
+}
 
 // The minimum notice a master asks for (masters.min_notice_minutes), as the
 // earliest instant a guest may book from right now.
@@ -78,7 +87,7 @@ export async function getActiveService(masterId, serviceId) {
   return rows[0] || null;
 }
 
-// Computes open slots over the next DAYS_AHEAD days of the master's own
+// Computes open slots over the master's booking window, in their own
 // calendar, from availability (weekly hours minus date-specific blocks) minus
 // existing non-cancelled bookings minus the cutoff window. Always queried
 // fresh (no caching) to keep the double-booking race window small.
@@ -90,7 +99,7 @@ export async function getActiveService(masterId, serviceId) {
 export async function getAvailableSlots(master, { excludeBookingId, durationMinutes }) {
   const tz = master.timezone;
   const startDate = todayDateStr(tz);
-  const endDate = addDaysToDateStr(startDate, DAYS_AHEAD - 1);
+  const endDate = lastBookableDate(master);
   const rangeStartUtc = localToUtc(startDate, '00:00', tz);
   const rangeEndUtc = localToUtc(addDaysToDateStr(endDate, 1), '00:00', tz);
   const cutoffInstant = earliestBookable(master);
@@ -123,7 +132,7 @@ export async function getAvailableSlots(master, { excludeBookingId, durationMinu
   const { rows: existingBookings } = await pool.query(bookingQuery, bookingParams);
 
   const days = [];
-  for (let i = 0; i < DAYS_AHEAD; i += 1) {
+  for (let i = 0; i < windowDays(master); i += 1) {
     const date = addDaysToDateStr(startDate, i);
     const hours = hoursByDow.get(dayOfWeek(date));
     const slots = [];

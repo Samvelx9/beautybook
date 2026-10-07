@@ -26,7 +26,7 @@ import {
   toCamel,
 } from '../services/profile.js';
 import { notifyGuest } from '../services/guestNotifications.js';
-import { MIN_NOTICE_CHOICES } from '../services/availability.js';
+import { BOOKING_WINDOW_CHOICES, MIN_NOTICE_CHOICES } from '../services/availability.js';
 import {
   accessSummary,
   deleteMaster,
@@ -103,6 +103,7 @@ async function accountBody(req) {
       defaultLang: master.default_lang,
       notifyLang: master.notify_lang,
       minNoticeMinutes: master.min_notice_minutes,
+      bookingWindowDays: master.booking_window_days,
       telegramConnected: Boolean(master.telegram_chat_id),
       createdAt: master.created_at,
     },
@@ -152,6 +153,11 @@ adminRouter.patch('/account/settings', asyncHandler(async (req, res) => {
     const minutes = Number(req.body.minNoticeMinutes);
     if (!MIN_NOTICE_CHOICES.includes(minutes)) return res.status(400).json({ error: 'invalid_min_notice' });
     set('min_notice_minutes', minutes);
+  }
+  if (req.body?.bookingWindowDays !== undefined) {
+    const days = Number(req.body.bookingWindowDays);
+    if (!BOOKING_WINDOW_CHOICES.includes(days)) return res.status(400).json({ error: 'invalid_booking_window' });
+    set('booking_window_days', days);
   }
   if (fields.length === 0) return res.status(400).json({ error: 'no_fields_to_update' });
 
