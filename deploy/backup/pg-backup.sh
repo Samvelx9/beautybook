@@ -55,7 +55,8 @@ link_into() { # <dir>
 [ "$(date -u +%d)" = 01 ] && link_into "$ROOT/monthly"
 
 prune() { # <dir> <keep>
-  ls -1 "$1" | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' | sort -r | tail -n +"$(( $2 + 1 ))" \
+  # `|| true`: an empty folder (no weekly backup yet) is fine, not a failure.
+  { ls -1 "$1" | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' || true; } | sort -r | tail -n +"$(( $2 + 1 ))" \
     | while read -r old; do rm -rf "${1:?}/$old"; done
 }
 prune "$ROOT/daily" "$KEEP_DAILY"
