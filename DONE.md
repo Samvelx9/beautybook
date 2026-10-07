@@ -95,6 +95,10 @@ Staging is live at **https://app.beautybookam.duckdns.org**; masters' pages are 
 - **Let's Encrypt** certificates for `beautybookam.duckdns.org` and `*.beautybookam.duckdns.org`
   (DNS-01 via DuckDNS hooks), renewing automatically with the server's certbot timer;
   renewal dry run passed.
+- **Nightly database backups** of every database on the shared Postgres plus roles
+  (`deploy/backup/`): 7 daily, 5 weekly, 12 monthly, checked before they're kept,
+  root-only. Restores verified on 2026-10-07: every table's row count matched the live
+  databases. Retention pruning tested on dummy folders.
 - `deploy/deploy.sh` rebuilds the backend and both frontends; deploy docs in
   `deploy/README.md`.
 - Lesson recorded: never name a compose service `backend` on the shared network — another

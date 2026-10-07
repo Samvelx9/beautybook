@@ -4,9 +4,10 @@ Most urgent first. What's already built is in [DONE.md](DONE.md).
 
 ## 1. Now — security and data safety
 
-- [ ] **Database backups.** There are none on the server — not for BeautyBook and not for
-      anything else on the shared Postgres. Add a nightly `pg_dump` of each database, kept
-      off the VM (e.g. object storage), and test a restore once.
+- [ ] **Copy the backups off the server.** Nightly backups exist (see DONE.md) but live on
+      the same VM, so they don't survive losing it. Sync `/var/backups/postgres` to object
+      storage (e.g. Oracle Object Storage or Backblaze B2) with the same retention.
+- [ ] **Alert when a backup fails** (today it shows only in `journalctl -u pg-backup`).
 - [ ] **Rotate the credentials that were shared in chat**:
   - [ ] Telegram bot token (@BotFather → `/revoke`), then update `TELEGRAM_BOT_TOKEN` in
         the server's `.env` and restart the backend.
