@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
-import { WEEKDAY_FULL, parseLocalDate, formatDate } from '../i18n.js';
+import { WEEKDAY_FULL, parseLocalDate, formatDate, formatNotice } from '../i18n.js';
 import { todayLocalStr } from 'salon-shared/time';
 
 // Today in the master's own timezone, not the browser's.
@@ -12,7 +12,7 @@ function addDays(dateStr, days) {
   return dt.toISOString().slice(0, 10);
 }
 
-export default function AvailabilityScreen({ T, lang, onAuthError }) {
+export default function AvailabilityScreen({ T, lang, onAuthError, account, refreshAccount }) {
   const [hours, setHours] = useState([]);
   const [blocks, setBlocks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -140,6 +140,8 @@ export default function AvailabilityScreen({ T, lang, onAuthError }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
       <h2 style={{ fontSize: 22, fontWeight: 500 }}>{T.availabilityTitle}</h2>
       {error && <p style={{ margin: 0, fontSize: 13, color: 'var(--terracotta)' }}>{T[error]}</p>}
+
+      <NoticeSection T={T} lang={lang} account={account} refreshAccount={refreshAccount} onAuthError={onAuthError} />
 
       <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -340,3 +342,59 @@ export default function AvailabilityScreen({ T, lang, onAuthError }) {
     </div>
   );
 }
+
+// The same list the server accepts (MIN_NOTICE_CHOICES in services/availability.js).
+const NOTICE_CHOICES = [0, 15, 30, 45, 60, 90, 120, 180, 240, 360, 720, 1440, 2880];
+
+// How far ahead guests must book. Saved as soon as it's picked — one setting,
+// no form to fill in around it.
+function NoticeSection({ T, lang, account, refreshAccount, onAuthError }) {
+  const current = account.master.minNoticeMinutes;
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState(null); // 'settingsSaved' | 'genericError'
+
+  async function choose(minutes) {
+    setSaving(true);
+    setMessage(null);
+    try {
+      await api.updateSettings({ minNoticeMinutes: minutes });
+      await refreshAccount();
+      setMessage('settingsSaved');
+    } catch (err) {
+      if (!onAuthError(err)) setMessage('genericError');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <h3 style={{ fontSize: 16, fontWeight: 600 }}>{T.noticeSection}</h3>
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 14 }}>
+          {T.noticeLabel}
+          <select
+            className="field-input"
+            style={{ width: 'auto', minWidth: 240 }}
+            value={current}
+            disabled={saving}
+            onChange={(e) => choose(Number(e.target.value))}
+          >
+            {NOTICE_CHOICES.map((m) => (
+              <option key={m} value={m}>
+                {m === 0 ? T.noticeNone : T.noticeBefore(formatNotice(m, lang))}
+              </option>
+            ))}
+          </select>
+          {message && (
+            <span role="status" style={{ fontSize: 13, color: message === 'settingsSaved' ? 'var(--sage)' : 'var(--terracotta)' }}>
+              {T[message]}
+            </span>
+          )}
+        </label>
+        <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--muted)' }}>{T.noticeHint}</p>
+      </div>
+    </section>
+  );
+}
+

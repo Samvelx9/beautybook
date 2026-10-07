@@ -1,6 +1,6 @@
 import Header from './Header.jsx';
 import SummaryBanner from './SummaryBanner.jsx';
-import { formatDateAt, parseLocalDate, localName } from '../i18n.js';
+import { formatDateAt, parseLocalDate, localName, formatNotice, getMinNotice } from '../i18n.js';
 
 export default function DetailsScreen(f) {
   const { T, lang, basket, backToCalendar } = f;
@@ -58,7 +58,7 @@ export default function DetailsScreen(f) {
           <p style={{ margin: '14px 0 0', fontSize: 12.5, color: 'var(--terracotta)' }}>{T[f.bannerErrorKey]}</p>
         )}
 
-        <p style={{ margin: '20px 0 0', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>{T.detailsCaption}</p>
+        <p style={{ margin: '20px 0 0', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>{T.detailsCaption(getMinNotice() ? formatNotice(getMinNotice(), lang) : '')}</p>
       </div>
 
       <div style={{ padding: '14px 24px 20px', borderTop: '1px solid var(--line)', background: 'var(--surface)' }}>

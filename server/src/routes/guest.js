@@ -4,7 +4,7 @@ import {
   getActiveService,
   getAvailableSlots,
   isSlotWithinAvailability,
-  CUTOFF_MINUTES,
+  earliestBookable,
 } from '../services/availability.js';
 import { localToUtc, addMinutes } from '../lib/time.js';
 import {
@@ -61,6 +61,7 @@ guestRouter.get('/site', (req, res) => {
     defaultLang: m.default_lang,
     currency: m.currency,
     timezone: m.timezone,
+    minNoticeMinutes: m.min_notice_minutes,
     open: hasAccess(m),
   });
 });
@@ -272,8 +273,8 @@ guestRouter.post('/bookings', bookingLimit, requireOpenPage, asyncHandler(async 
   const startTime = localToUtc(date, time, master.timezone);
   const endTime = addMinutes(startTime, resolved.totalMinutes);
 
-  if (startTime < addMinutes(new Date(), CUTOFF_MINUTES)) {
-    return res.status(400).json({ error: 'too_soon', cutoffMinutes: CUTOFF_MINUTES });
+  if (startTime < earliestBookable(master)) {
+    return res.status(400).json({ error: 'too_soon', minNoticeMinutes: master.min_notice_minutes });
   }
 
   // A copy of this same request that got in first is what makes the slot look
@@ -438,8 +439,8 @@ guestRouter.post('/bookings/:id/reschedule', lookupLimit, requireOpenPage, async
     });
   }
 
-  if (startTime < addMinutes(new Date(), CUTOFF_MINUTES)) {
-    return res.status(400).json({ error: 'too_soon', cutoffMinutes: CUTOFF_MINUTES });
+  if (startTime < earliestBookable(master)) {
+    return res.status(400).json({ error: 'too_soon', minNoticeMinutes: master.min_notice_minutes });
   }
 
   if (!(await isSlotWithinAvailability(master, date, startTime, endTime))) {

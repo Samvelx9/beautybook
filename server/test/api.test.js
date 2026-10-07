@@ -572,3 +572,39 @@ test('deleting an account removes everything it owned, bookings included', async
   );
   assert.deepEqual(left[0], { bookings: 0, services: 0 });
 });
+
+test("each master sets their own minimum booking notice", async () => {
+  const token = await signup('notice');
+  const zone = await makeZone(token);
+  assert.equal((await call('GET', '/site', { slug: 'notice' })).body.minNoticeMinutes, 90);
+
+  const bad = await call('PATCH', '/admin/account/settings', { token, body: { minNoticeMinutes: 77 } });
+  assert.equal(bad.body.error, 'invalid_min_notice');
+
+  // Two days' notice: anything tomorrow (in the master's own timezone) is too soon.
+  const set = await call('PATCH', '/admin/account/settings', { token, body: { minNoticeMinutes: 2880 } });
+  assert.equal(set.status, 200);
+  assert.equal(set.body.master.minNoticeMinutes, 2880);
+  assert.equal((await call('GET', '/site', { slug: 'notice' })).body.minNoticeMinutes, 2880);
+
+  const { rows } = await db.query(`SELECT to_char((now() AT TIME ZONE 'Asia/Yerevan')::date + 1, 'YYYY-MM-DD') AS d`);
+  const tomorrow = rows[0].d;
+  const early = await call('POST', '/bookings', {
+    slug: 'notice',
+    body: { date: tomorrow, time: '18:00', customerName: 'N', customerPhone: '5', items: [{ serviceId: zone.serviceId }] },
+  });
+  assert.equal(early.status, 400);
+  assert.deepEqual(early.body, { error: 'too_soon', minNoticeMinutes: 2880 });
+
+  const slots = await call('GET', '/slots?durationMinutes=30', { slug: 'notice' });
+  const day = slots.body.days.find((d) => d.date === tomorrow);
+  assert.equal(day.slots.length, 0, 'nothing bookable tomorrow with two days of notice');
+
+  // Other masters keep their own setting.
+  assert.equal((await call('GET', '/site', { slug: 'anna' })).body.minNoticeMinutes, 90);
+
+  // No notice at all: the next open slot today or later is offered again.
+  await call('PATCH', '/admin/account/settings', { token, body: { minNoticeMinutes: 0 } });
+  const open = await call('GET', '/slots?durationMinutes=30', { slug: 'notice' });
+  assert.ok(open.body.days.some((d) => d.slots.length > 0));
+});

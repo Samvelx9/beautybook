@@ -4,6 +4,11 @@
 // string is replaced with the platform's domain where it's shown.
 export const PLATFORM_STRINGS = {
   en: {
+    noticeSection: 'Booking notice',
+    noticeHint: "How far ahead clients must book. Closer times show as unavailable on your page, and moving a booking follows the same rule. Bookings you add yourself aren't affected.",
+    noticeLabel: 'Clients can book',
+    noticeNone: 'Any time — no notice needed',
+    noticeBefore: (d) => `at least ${d} ahead`,
     loginIdLabel: 'Email or username',
     repeatPasswordLabel: 'Repeat new password',
     passwordsDontMatch: "The passwords don't match.",
@@ -184,6 +189,11 @@ export const PLATFORM_STRINGS = {
   },
 
   ru: {
+    noticeSection: 'Минимальное время до записи',
+    noticeHint: 'За сколько времени до визита клиенты должны записываться. Более близкое время на вашей странице будет недоступно; перенос записи подчиняется тому же правилу. Записи, которые вы добавляете сами, это не затрагивает.',
+    noticeLabel: 'Клиенты могут записаться',
+    noticeNone: 'В любое время — без ограничений',
+    noticeBefore: (d) => `не позднее чем за ${d}`,
     loginIdLabel: 'Email или логин',
     repeatPasswordLabel: 'Повторите новый пароль',
     passwordsDontMatch: 'Пароли не совпадают.',
@@ -364,6 +374,11 @@ export const PLATFORM_STRINGS = {
   },
 
   hy: {
+    noticeSection: 'Գրանցման նվազագույն ժամկետ',
+    noticeHint: 'Այցից որքան առաջ պետք է գրանցվեն հաճախորդները։ Ավելի մոտ ժամերը ձեր էջում անհասանելի կլինեն, իսկ գրանցման տեղափոխումը ենթարկվում է նույն կանոնին։ Ձեր կողմից ավելացված գրանցումների վրա դա չի ազդում։',
+    noticeLabel: 'Հաճախորդները կարող են գրանցվել',
+    noticeNone: 'Ցանկացած պահի՝ առանց սահմանափակման',
+    noticeBefore: (d) => `առնվազն ${d} առաջ`,
     loginIdLabel: 'Էլ. փոստ կամ մուտքանուն',
     repeatPasswordLabel: 'Կրկնեք նոր գաղտնաբառը',
     passwordsDontMatch: 'Գաղտնաբառերը չեն համընկնում։',

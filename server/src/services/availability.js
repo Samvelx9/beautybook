@@ -10,7 +10,13 @@ import {
 
 export const DAYS_AHEAD = 7;
 export const SLOT_INTERVAL_MINUTES = 30;
-export const CUTOFF_MINUTES = 90;
+
+// The minimum notice a master asks for (masters.min_notice_minutes), as the
+// earliest instant a guest may book from right now.
+export const MIN_NOTICE_CHOICES = [0, 15, 30, 45, 60, 90, 120, 180, 240, 360, 720, 1440, 2880];
+export function earliestBookable(master, now = new Date()) {
+  return addMinutes(now, master.min_notice_minutes ?? 90);
+}
 
 function overlaps(aStart, aEnd, bStart, bEnd) {
   return aStart < bEnd && bStart < aEnd;
@@ -87,7 +93,7 @@ export async function getAvailableSlots(master, { excludeBookingId, durationMinu
   const endDate = addDaysToDateStr(startDate, DAYS_AHEAD - 1);
   const rangeStartUtc = localToUtc(startDate, '00:00', tz);
   const rangeEndUtc = localToUtc(addDaysToDateStr(endDate, 1), '00:00', tz);
-  const cutoffInstant = addMinutes(new Date(), CUTOFF_MINUTES);
+  const cutoffInstant = earliestBookable(master);
 
   const { rows: weeklyHours } = await pool.query(
     `SELECT day_of_week, is_open, start_time, end_time, lunch_start, lunch_end

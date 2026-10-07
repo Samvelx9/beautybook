@@ -1,4 +1,4 @@
-import { dayLabel, parseLocalDate } from '../i18n.js';
+import { dayLabel, parseLocalDate, formatNotice, getMinNotice } from '../i18n.js';
 
 // A taken time is shown, struck through and unclickable, rather than left out:
 // a grid that jumps from 14:30 to 16:00 looks broken, while a greyed 15:00 says
@@ -16,7 +16,6 @@ const REASON_STYLE = {
 export default function SlotPicker({ T, lang, slotsData, slotsLoading, selectedDayIndex, selectedSlot, selectDay, selectSlot }) {
   const days = slotsData?.days ?? [];
   const day = days[selectedDayIndex];
-  const isTodaySelected = selectedDayIndex === 0;
 
   // One grid in clock order, free and taken together.
   const daySlots = [
@@ -64,9 +63,11 @@ export default function SlotPicker({ T, lang, slotsData, slotsLoading, selectedD
         <span style={{ fontSize: 13, color: 'var(--muted)' }}>{T.onlyRealOpenings}</span>
       </div>
 
-      {isTodaySelected && (
+      {/* Said whenever the master's notice period rules out times on this day
+          — today, or later days too when the notice is a day or two. */}
+      {getMinNotice() > 0 && day?.unavailable?.some((u) => u.reason === 'past') && (
         <div style={{ padding: '0 24px 8px' }}>
-          <span style={{ fontSize: 12.5, color: 'var(--muted)', fontStyle: 'italic' }}>{T.sameDayNotice}</span>
+          <span style={{ fontSize: 12.5, color: 'var(--muted)', fontStyle: 'italic' }}>{T.sameDayNotice(formatNotice(getMinNotice(), lang))}</span>
         </div>
       )}
 

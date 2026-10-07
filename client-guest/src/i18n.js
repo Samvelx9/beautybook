@@ -10,6 +10,16 @@ export function getSiteLanguages() {
   return siteLanguages;
 }
 
+// The master's minimum booking notice in minutes (GET /api/site), for the
+// sentences that tell guests about it.
+let minNoticeMinutes = 90;
+export function setMinNotice(minutes) {
+  if (Number.isInteger(minutes)) minNoticeMinutes = minutes;
+}
+export function getMinNotice() {
+  return minNoticeMinutes;
+}
+
 export const STRINGS = {
   en: {
     brandName: 'Online booking',
@@ -44,7 +54,7 @@ export const STRINGS = {
     pickATime: 'Pick a time',
     change: 'Change',
     onlyRealOpenings: 'Tap any time that isn\'t crossed out — those are really free.',
-    sameDayNotice: "Same-day bookings need at least 90 minutes' notice.",
+    sameDayNotice: (d) => `Book at least ${d} ahead.`,
     noOpenings: 'No openings on this day. Try another date above.',
     dayFullyBooked: 'Every time on this day is taken — try another date above.',
     yourDetails: 'Your details',
@@ -53,7 +63,7 @@ export const STRINGS = {
     namePlaceholder: 'Your name',
     phoneLabel: 'Phone number',
     formError: 'Please add your name and phone so we can confirm your visit.',
-    detailsCaption: "You can cancel any time, or reschedule up to 90 minutes before your visit.",
+    detailsCaption: (d) => (d ? `You can cancel any time, or reschedule up to ${d} before your visit.` : 'You can cancel or reschedule any time before your visit.'),
     confirmBookingBtn: 'Confirm booking',
     allSet: "You're all set!",
     summaryService: 'Service',
@@ -127,7 +137,7 @@ export const STRINGS = {
     pickATime: 'Выберите время',
     change: 'Изменить',
     onlyRealOpenings: 'Выбирайте любое незачёркнутое время — оно действительно свободно.',
-    sameDayNotice: 'Запись на сегодня — не менее чем за 90 минут.',
+    sameDayNotice: (d) => `Записаться можно не позднее чем за ${d} до визита.`,
     noOpenings: 'На этот день свободных окон нет. Выберите другую дату выше.',
     dayFullyBooked: 'На этот день всё занято — выберите другую дату выше.',
     yourDetails: 'Ваши данные',
@@ -136,7 +146,7 @@ export const STRINGS = {
     namePlaceholder: 'Ваше имя',
     phoneLabel: 'Номер телефона',
     formError: 'Укажите имя и телефон, чтобы мастер мог подтвердить запись.',
-    detailsCaption: 'Отменить запись можно в любое время, перенести — не позднее чем за 90 минут до визита.',
+    detailsCaption: (d) => (d ? `Отменить запись можно в любое время, перенести — не позднее чем за ${d} до визита.` : 'Отменить или перенести запись можно в любое время до визита.'),
     confirmBookingBtn: 'Подтвердить запись',
     allSet: 'Всё готово!',
     summaryService: 'Услуга',
@@ -210,7 +220,7 @@ export const STRINGS = {
     pickATime: 'Ընտրեք ժամը',
     change: 'Փոխել',
     onlyRealOpenings: 'Ընտրեք ցանկացած չջնջված ժամ՝ այն իրոք ազատ է։',
-    sameDayNotice: 'Նույն օրվա գրանցման համար անհրաժեշտ է առնվազն 90 րոպե։',
+    sameDayNotice: (d) => `Գրանցվել կարելի է այցից առնվազն ${d} առաջ։`,
     noOpenings: 'Այս օրը ազատ ժամեր չկան։ Ընտրեք այլ ամսաթիվ վերևում։',
     dayFullyBooked: 'Այս օրն ամբողջությամբ զբաղված է — ընտրեք այլ ամսաթիվ վերևում։',
     yourDetails: 'Ձեր տվյալները',
@@ -219,7 +229,7 @@ export const STRINGS = {
     namePlaceholder: 'Ձեր անունը',
     phoneLabel: 'Հեռախոսահամար',
     formError: 'Խնդրում ենք նշել անունն ու հեռախոսահամարը, որպեսզի վարպետը հաստատի այցը։',
-    detailsCaption: 'Կարող եք չեղարկել ցանկացած պահի, կամ փոխել ժամը՝ առնվազն 90 րոպե առաջ։',
+    detailsCaption: (d) => (d ? `Կարող եք չեղարկել ցանկացած պահի, կամ փոխել ժամը՝ առնվազն ${d} առաջ։` : 'Կարող եք չեղարկել կամ փոխել ժամը ցանկացած պահի մինչև այցը։'),
     confirmBookingBtn: 'Հաստատել գրանցումը',
     allSet: 'Ամեն ինչ պատրաստ է!',
     summaryService: 'Ծառայություն',

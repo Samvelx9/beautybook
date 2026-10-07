@@ -6,7 +6,7 @@ import { pool } from '../db.js';
 export const MASTER_COLUMNS = `m.id, m.slug, m.custom_domain, m.timezone, m.currency,
   m.languages, m.default_lang, m.notify_lang, m.telegram_chat_id, m.trial_ends_at,
   m.subscription_status, m.period_ends_at, m.customer_portal_url, m.suspended_at,
-  m.created_at`;
+  m.min_notice_minutes, m.created_at`;
 
 // Subdomains that will never be a master's page: the platform's own hosts and
 // names a visitor would mistake for something official.

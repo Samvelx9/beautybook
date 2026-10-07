@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from './api.js';
-import { DEFAULT_LANG, STRINGS, setCurrency, setSiteLanguages } from './i18n.js';
+import { DEFAULT_LANG, STRINGS, setCurrency, setMinNotice, setSiteLanguages } from './i18n.js';
 import { MIN_BOOKING_MINUTES, MAX_BOOKING_MINUTES } from 'salon-shared/booking';
 import { setTimeZone } from 'salon-shared/time';
 
@@ -84,6 +84,7 @@ export function useBookingFlow() {
         setCurrency(siteInfo.currency);
         setTimeZone(siteInfo.timezone);
         setSiteLanguages(siteInfo.languages);
+        setMinNotice(siteInfo.minNoticeMinutes);
         setSite(siteInfo);
         // The page opens in the master's default language, unless the guest
         // has already picked one or arrived on a link from their booking.
