@@ -2,7 +2,11 @@
 # /opt/beautybook/docker-compose.yml on the VM; secrets in /opt/beautybook/.env
 # (see server/.env.example). Joins the shared nginx network.
 services:
-  backend:
+  # Never call this service `backend`: Compose adds the service name as a DNS
+  # alias on the shared network, and another site's nginx proxies to
+  # `http://backend:4000` — a second `backend` there splits that site's API
+  # traffic between the two containers.
+  beautybook-backend:
     build:
       context: ./repo/server
     container_name: beautybook-backend
