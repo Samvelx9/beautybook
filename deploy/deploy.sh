@@ -6,10 +6,14 @@ set -euo pipefail
 
 APP=/opt/beautybook
 WWW=/opt/nginx-setup/www/beautybook
-set -a; source "$APP/.env"; set +a
+# Only the two values the frontend build needs; .env itself is root-only and
+# holds secrets, so it isn't sourced into this shell.
+env_value() { sudo sed -nE "s/^$1=(.*)$/\1/p" "$APP/.env" | tail -1; }
+PLATFORM_DOMAIN=$(env_value PLATFORM_DOMAIN)
+PRODUCT_NAME=$(env_value PRODUCT_NAME)
 
 echo "== Pulling latest code =="
-cd "$APP/repo" && git pull --ff-only
+sudo git -C "$APP/repo" pull --ff-only
 
 echo "== Rebuilding + restarting backend =="
 cd "$APP" && sudo docker compose build && sudo docker compose up -d
