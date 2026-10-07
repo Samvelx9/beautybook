@@ -226,6 +226,39 @@ export async function askIfCompleted(master, booking) {
   return Boolean(result);
 }
 
+// What people see in the bot's empty chat before pressing Start, and next to
+// its name — in each language Telegram users may have set, plus a default.
+// Set on every start, so changing the copy here is all it takes.
+const BOT_PROFILE = {
+  '': {
+    description:
+      'Booking notifications for beauty masters, and visit reminders for their clients. Open the link from your booking page or your admin panel and press Start.',
+    short: 'Booking notifications and visit reminders.',
+    start: 'Connect this chat',
+  },
+  ru: {
+    description:
+      'Уведомления о записях для бьюти-мастеров и напоминания о визитах для их клиентов. Откройте ссылку со страницы записи или из панели мастера и нажмите «Start».',
+    short: 'Уведомления о записях и напоминания о визитах.',
+    start: 'Подключить этот чат',
+  },
+  hy: {
+    description:
+      'Գրանցումների ծանուցումներ գեղեցկության վարպետների համար և այցերի հիշեցումներ նրանց հաճախորդների համար։ Բացեք հղումը գրանցման էջից կամ վարպետի վահանակից և սեղմեք «Start»։',
+    short: 'Գրանցումների ծանուցումներ և այցերի հիշեցումներ։',
+    start: 'Միացնել այս զրույցը',
+  },
+};
+
+export async function configureBotProfile() {
+  for (const [lang, copy] of Object.entries(BOT_PROFILE)) {
+    const language = lang ? { language_code: lang } : {};
+    await callTelegram('setMyDescription', { description: copy.description, ...language });
+    await callTelegram('setMyShortDescription', { short_description: copy.short, ...language });
+    await callTelegram('setMyCommands', { commands: [{ command: 'start', description: copy.start }], ...language });
+  }
+}
+
 // Points Telegram at this server's webhook: button presses, and messages — a
 // "/start <token>" from a master connecting or a guest opting in.
 export async function registerWebhook(publicApiUrl) {

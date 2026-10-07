@@ -7,7 +7,7 @@ import { authRouter } from './routes/auth.js';
 import { billingRouter } from './routes/billing.js';
 import { platformRouter } from './routes/platform.js';
 import { telegramRouter } from './routes/telegram.js';
-import { registerWebhook, telegramToken } from './services/telegram.js';
+import { configureBotProfile, registerWebhook, telegramToken } from './services/telegram.js';
 import { startCompletionPrompts } from './services/completionPrompts.js';
 import { startGuestReminders } from './services/guestNotifications.js';
 
@@ -64,6 +64,7 @@ app.listen(port, () => {
   const publicUrl = process.env.PUBLIC_URL;
   if (publicUrl && telegramToken()) {
     registerWebhook(publicUrl);
+    configureBotProfile();
     startCompletionPrompts();
     startGuestReminders();
   }
