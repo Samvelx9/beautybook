@@ -17,15 +17,16 @@ own nginx config file on the shared nginx container. Other sites on the VM are l
      -d example.com -d '*.example.com'
    ```
    Renewal then runs on its own; nginx picks the new certificate up on reload.
-   Copy (or symlink) `fullchain.pem` and `privkey.pem` to `/opt/nginx-setup/ssl/example.com/`,
-   which is where the nginx config looks (`/etc/nginx/ssl/` inside the container).
+   Render the nginx template with both certificate directories pointing at
+   `/etc/letsencrypt/live/example.com` (one certificate covers both names).
 
-   **Before a real domain exists** (the current staging setup on `beautybook.am`): the
-   certificate there comes from a private CA limited by name constraints to
-   `beautybook.am` and its subdomains, with the CA's private key deleted after signing.
-   Its certificate is `/opt/beautybook/beautybook-staging-ca.crt`; trusting it on a PC
-   (plus hosts-file entries) gives a clean padlock there. Replace both with a real
-   certificate once the domain is registered.
+   **The current staging setup, on DuckDNS** (`beautybookam.duckdns.org`): DuckDNS is free,
+   resolves every `*.beautybookam.duckdns.org` to the server, and lets certbot prove control
+   through DNS. It holds only one challenge record at a time, so the bare name and the
+   wildcard are two Let's Encrypt certificates, issued by `deploy/letsencrypt-duckdns.sh`
+   (hooks in `deploy/certbot/`, token in `/etc/letsencrypt/duckdns.token`). Both renew with
+   the server's certbot timer; the existing deploy hook reloads nginx.
+
 3. **A Telegram bot** from @BotFather (one for the whole platform).
 4. **A Lemon Squeezy store** with a subscription product. Note its store id, the
    variant id, an API key, and create a webhook to `https://app.example.com/api/billing/webhook`
@@ -45,9 +46,11 @@ sudo cp repo/server/.env.example .env && sudo nano .env   # fill in, PLATFORM_DO
 sudo docker exec -it postgres psql -U postgres -c "CREATE ROLE beautybook LOGIN PASSWORD '…'" \
   -c "CREATE DATABASE beautybook OWNER beautybook"
 
-# nginx
-sed 's/__DOMAIN__/example.com/g' repo/deploy/nginx-platform.conf.template \
-  | sudo tee /opt/nginx-setup/conf.d/beautybook.conf
+# nginx (two certificate directories — the same one for a single wildcard+apex certificate)
+sed -e 's/__DOMAIN__/example.com/g' \
+    -e 's#__APEX_CERT__#/etc/letsencrypt/live/example.com#g' \
+    -e 's#__WILDCARD_CERT__#/etc/letsencrypt/live/example.com#g' \
+    repo/deploy/nginx-platform.conf.template | sudo tee /opt/nginx-setup/conf.d/example.com.conf
 sudo docker exec nginx nginx -t && sudo docker exec nginx nginx -s reload
 
 bash repo/deploy/deploy.sh
