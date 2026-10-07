@@ -1,12 +1,13 @@
-# The platform on the shared nginx container — rendered by install.sh with
-# __DOMAIN__ replaced. Other sites' configs are not touched.
+# The platform on the shared nginx container. Rendered with:
+#   __DOMAIN__          the platform domain, e.g. example.com
+#   __APEX_CERT__       certificate directory for __DOMAIN__ itself
+#   __WILDCARD_CERT__   certificate directory for *.__DOMAIN__
+# (the two may be the same directory when one certificate covers both).
+# Other sites' configs are not touched.
 #
-#   __DOMAIN__ and www  → the app (welcome page, sign-up, admin panels)
-#   app.__DOMAIN__      → the same app
+#   __DOMAIN__          → redirects to app.__DOMAIN__
+#   app. / www.         → the app (welcome page, sign-up, admin panels)
 #   <slug>.__DOMAIN__   → that master's booking page (the guest app)
-#
-# One wildcard certificate (*.__DOMAIN__ + __DOMAIN__) covers all of it; it
-# needs a DNS challenge — see deploy/README.md.
 
 server {
     listen 80;
@@ -22,8 +23,22 @@ server {
     }
 }
 
+# The bare domain only sends visitors on to the app.
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name __DOMAIN__;
+
+    ssl_certificate     __APEX_CERT__/fullchain.pem;
+    ssl_certificate_key __APEX_CERT__/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    return 301 https://app.__DOMAIN__$request_uri;
+}
+
 map $host $bb_root {
-    __DOMAIN__        /usr/share/nginx/html/beautybook/admin;
     www.__DOMAIN__    /usr/share/nginx/html/beautybook/admin;
     app.__DOMAIN__    /usr/share/nginx/html/beautybook/admin;
     default           /usr/share/nginx/html/beautybook/guest;
@@ -33,10 +48,10 @@ server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
-    server_name .__DOMAIN__;   # the leading dot covers the bare domain too
+    server_name *.__DOMAIN__;
 
-    ssl_certificate     /etc/nginx/ssl/__DOMAIN__/fullchain.pem;
-    ssl_certificate_key /etc/nginx/ssl/__DOMAIN__/privkey.pem;
+    ssl_certificate     __WILDCARD_CERT__/fullchain.pem;
+    ssl_certificate_key __WILDCARD_CERT__/privkey.pem;
     ssl_protocols       TLSv1.2 TLSv1.3;
     ssl_session_cache   shared:SSL:10m;
     ssl_session_timeout 1d;
