@@ -156,3 +156,22 @@ export async function createMaster(client, { slug, timezone, currency, languages
   }
   return masterId;
 }
+
+// Removes a master and everything they own. The foreign keys cascade from
+// `masters`, but a booked zone is protected (booking_items → services is
+// RESTRICT), and Postgres checks that before it has cascaded away the
+// bookings' items — so the bookings go first, in the same transaction.
+export async function deleteMaster(masterId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM bookings WHERE master_id = $1', [masterId]);
+    await client.query('DELETE FROM masters WHERE id = $1', [masterId]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}

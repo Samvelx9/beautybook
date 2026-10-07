@@ -548,12 +548,27 @@ test('changing the password ends other sessions', async () => {
   assert.equal((await call('GET', '/admin/account', { token: changed.body.token })).status, 200);
 });
 
-test('deleting an account removes everything it owned', async () => {
+test('deleting an account removes everything it owned, bookings included', async () => {
   const token = await signup('gone');
-  await makeZone(token);
+  const zone = await makeZone(token);
+  // A booked zone is what used to make the cascade fail.
+  const booked = await call('POST', '/bookings', {
+    slug: 'gone',
+    body: { date, time: '12:00', customerName: 'G', customerPhone: '9', items: [{ serviceId: zone.serviceId }] },
+  });
+  assert.equal(booked.status, 201, JSON.stringify(booked.body));
+  // Deleting that zone on its own is still refused.
+  assert.equal((await call('DELETE', `/admin/services/${zone.serviceId}`, { token })).body.error, 'service_has_bookings');
+
   const del = await call('DELETE', '/admin/account', { token, body: { password: 'correct horse battery' } });
   assert.equal(del.status, 204);
   assert.equal((await call('GET', '/site', { slug: 'gone' })).status, 404);
   const { rows } = await db.query(`SELECT COUNT(*)::int AS n FROM users WHERE email = 'gone@example.com'`);
   assert.equal(rows[0].n, 0);
+  const { rows: left } = await db.query(
+    `SELECT (SELECT COUNT(*) FROM bookings WHERE customer_name = 'G')::int AS bookings,
+            (SELECT COUNT(*) FROM services WHERE id = $1)::int AS services`,
+    [zone.serviceId]
+  );
+  assert.deepEqual(left[0], { bookings: 0, services: 0 });
 });

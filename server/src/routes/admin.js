@@ -28,6 +28,7 @@ import {
 import { notifyGuest } from '../services/guestNotifications.js';
 import {
   accessSummary,
+  deleteMaster,
   getMasterById,
   masterSiteUrl,
   newConnectToken,
@@ -45,6 +46,10 @@ export const adminRouter = Router();
 adminRouter.use(requireMasterAuth);
 
 const FOREIGN_KEY_VIOLATION = '23503';
+// A delete blocked by a RESTRICT foreign key: Postgres 16 reports it as a
+// foreign-key violation, Postgres 17+ as its own restrict_violation.
+const RESTRICT_VIOLATION = '23001';
+const isBlockedDelete = (err) => err.code === FOREIGN_KEY_VIOLATION || err.code === RESTRICT_VIOLATION;
 const CHECK_VIOLATION = '23514';
 const UNIQUE_VIOLATION = '23505';
 const EXCLUSION_VIOLATION = '23P01';
@@ -162,7 +167,7 @@ adminRouter.delete('/account', asyncHandler(async (req, res) => {
   if (!rows[0] || !(await bcrypt.compare(password, rows[0].password_hash))) {
     return res.status(403).json({ error: 'wrong_password' });
   }
-  await pool.query('DELETE FROM masters WHERE id = $1', [req.master.id]);
+  await deleteMaster(req.master.id);
   res.status(204).end();
 }));
 
@@ -422,7 +427,7 @@ adminRouter.delete('/categories/:id', asyncHandler(async (req, res) => {
     if (rowCount === 0) return res.status(404).json({ error: 'category_not_found' });
     res.status(204).end();
   } catch (err) {
-    if (err.code === FOREIGN_KEY_VIOLATION) {
+    if (isBlockedDelete(err)) {
       return res.status(409).json({
         error: 'category_has_services',
         hint: "Move or delete this category's services first, or deactivate it instead.",
@@ -557,7 +562,7 @@ adminRouter.delete('/services/:id', asyncHandler(async (req, res) => {
     if (rowCount === 0) return res.status(404).json({ error: 'service_not_found' });
     res.status(204).end();
   } catch (err) {
-    if (err.code === FOREIGN_KEY_VIOLATION) {
+    if (isBlockedDelete(err)) {
       return res.status(409).json({
         error: 'service_has_bookings',
         hint: 'Deactivate the service instead (PATCH isActive:false) to preserve booking history.',
