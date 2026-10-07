@@ -26,7 +26,7 @@ export default function LoginScreen({ T, lang, setLang, go, login, loginError, l
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <label htmlFor="login-email" style={{ fontSize: 12, color: 'var(--muted)' }}>{T.emailLabel}</label>
-            <input id="login-email" className="field-input" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
+            <input id="login-email" className="field-input" type="text" autoCapitalize="none" spellCheck={false} autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <label htmlFor="login-password" style={{ fontSize: 12, color: 'var(--muted)' }}>{T.passwordLabel}</label>
