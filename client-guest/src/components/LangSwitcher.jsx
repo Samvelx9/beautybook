@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { LANG_META, LANG_ORDER, getSiteLanguages } from '../i18n.js';
+import { rem } from '../lib/rem.js';
 
 // Offers only the languages the master's page is in (from GET /api/site);
 // with just one there's nothing to switch, so nothing shows.
@@ -34,6 +35,9 @@ export default function LangSwitcher({ lang, langMenuOpen, toggleLangMenu, setLa
     <div ref={rootRef} style={{ position: 'relative', flexShrink: 0 }}>
       <button
         onClick={toggleLangMenu}
+        className="hit-expand"
+        aria-haspopup="menu"
+        aria-expanded={langMenuOpen}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -44,7 +48,7 @@ export default function LangSwitcher({ lang, langMenuOpen, toggleLangMenu, setLa
           background: bg,
         }}
       >
-        <span style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: '0.04em', lineHeight: 1 }}>
+        <span style={{ fontSize: rem(12.5), fontWeight: 700, letterSpacing: '0.04em', lineHeight: 1 }}>
           {LANG_META[lang].code}
         </span>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" style={{ stroke: 'var(--muted)', strokeWidth: 2.5, strokeLinecap: 'round', strokeLinejoin: 'round' }}>
@@ -53,6 +57,7 @@ export default function LangSwitcher({ lang, langMenuOpen, toggleLangMenu, setLa
       </button>
       {langMenuOpen && (
         <div
+          className="menu-pop"
           style={{
             position: 'absolute',
             top: 'calc(100% + 6px)',
@@ -83,10 +88,10 @@ export default function LangSwitcher({ lang, langMenuOpen, toggleLangMenu, setLa
                 textAlign: 'left',
               }}
             >
-              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', minWidth: 20 }}>
+              <span style={{ fontSize: rem(12), fontWeight: 700, color: 'var(--muted)', minWidth: 20 }}>
                 {LANG_META[code].code}
               </span>
-              <span style={{ fontSize: 13, fontWeight: code === lang ? 700 : 500, color: 'var(--ink)' }}>
+              <span style={{ fontSize: rem(13), fontWeight: code === lang ? 700 : 500, color: 'var(--ink)' }}>
                 {LANG_META[code].name}
               </span>
             </button>

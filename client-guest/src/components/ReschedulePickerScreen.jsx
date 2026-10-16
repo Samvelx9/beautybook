@@ -1,6 +1,7 @@
 import Header from './Header.jsx';
 import SlotPicker from './SlotPicker.jsx';
 import ErrorBanner from './ErrorBanner.jsx';
+import { rem } from '../lib/rem.js';
 
 export default function ReschedulePickerScreen(f) {
   const { T, lang } = f;
@@ -31,11 +32,12 @@ export default function ReschedulePickerScreen(f) {
       />
 
       {f.selectedSlot && (
-        <div style={{ padding: '14px 24px 20px', borderTop: '1px solid var(--line)', background: 'var(--surface)' }}>
+        <div className="bottom-bar" style={{ padding: '14px 24px 20px' }}>
           <button
+            className="tap-wide"
             onClick={f.confirmNewTime}
             disabled={f.busy}
-            style={{ width: '100%', padding: 16, borderRadius: 999, background: 'var(--sage)', color: 'var(--white)', fontSize: 15, fontWeight: 600, opacity: f.busy ? 0.7 : 1 }}
+            style={{ width: '100%', padding: 16, borderRadius: 999, background: 'var(--sage)', color: 'var(--white)', fontSize: rem(15), fontWeight: 600, opacity: f.busy ? 0.7 : 1 }}
           >
             {T.confirmNewTime}
           </button>

@@ -463,6 +463,30 @@ test('platform screens are for the platform admin only', async () => {
   tokenB = login.body.token;
 });
 
+test('the platform price and support email: anyone can read them, only the operator can change them', async () => {
+  const info = await call('GET', '/auth/platform');
+  assert.equal(info.status, 200);
+  assert.deepEqual(info.body, { priceMonthlyMinor: 1000, priceCurrency: 'USD', supportEmail: null });
+
+  assert.equal((await call('PATCH', '/platform/settings', { token: tokenB, body: { priceMonthlyMinor: 1 } })).status, 403);
+  assert.equal((await call('PATCH', '/platform/settings', { body: { priceMonthlyMinor: 1 } })).status, 401);
+  for (const body of [{ priceMonthlyMinor: -5 }, { priceMonthlyMinor: 9.5 }, { priceCurrency: 'dollars' }, { supportEmail: 'not-an-email' }]) {
+    assert.equal((await call('PATCH', '/platform/settings', { token: tokenA, body })).status, 400, JSON.stringify(body));
+  }
+
+  // tokenA was made platform admin by the test above.
+  const saved = await call('PATCH', '/platform/settings', {
+    token: tokenA,
+    body: { priceMonthlyMinor: 1299, priceCurrency: 'eur', supportEmail: ' help@bb.test ' },
+  });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.body, { priceMonthlyMinor: 1299, priceCurrency: 'EUR', supportEmail: 'help@bb.test' });
+  assert.deepEqual((await call('GET', '/auth/platform')).body, saved.body);
+
+  const cleared = await call('PATCH', '/platform/settings', { token: tokenA, body: { priceMonthlyMinor: 1000, priceCurrency: 'USD', supportEmail: null } });
+  assert.deepEqual(cleared.body, { priceMonthlyMinor: 1000, priceCurrency: 'USD', supportEmail: null });
+});
+
 test("the operator sees one master in depth, without their clients' details", async () => {
   const list = await call('GET', '/platform/masters', { token: tokenA });
   const anna = list.body.find((m) => m.slug === 'anna');

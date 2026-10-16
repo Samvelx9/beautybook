@@ -3,6 +3,7 @@ import { api, ApiError } from '../api.js';
 import { formatDate } from '../i18n.js';
 import { routeParam, setRouteParams } from '../route.js';
 import MasterDetail from './MasterDetail.jsx';
+import ConfirmInline from './ConfirmInline.jsx';
 
 const STATUS_COLOR = {
   trial: 'var(--sage)',
@@ -20,6 +21,10 @@ const STATUS_COLOR = {
 export default function PlatformScreen({ T, lang, onAuthError }) {
   const [masters, setMasters] = useState(null);
   const [error, setError] = useState(null);
+  // One master's row at a time can be mid-action: confirming a reset or a
+  // suspension, editing the domain, or showing a just-reset password.
+  // { id, kind: 'reset' | 'suspend' | 'domain' | 'password', value? }
+  const [pending, setPending] = useState(null);
   // The master being looked at in detail, kept in the URL so a reload stays there.
   const [openId, setOpenId] = useState(() => {
     const value = routeParam('master', (v) => /^\d+$/.test(v), null);
@@ -53,18 +58,24 @@ export default function PlatformScreen({ T, lang, onAuthError }) {
     }
   }
 
+  // The new password stays on the row until dismissed, where it can be
+  // selected and copied — an alert box would vanish on the first click.
   const resetPassword = (m, reload) =>
     act(async () => {
-      if (!window.confirm(T.confirmResetPassword)) return;
       const { password } = await api.resetMasterPassword(m.id);
-      window.alert(T.newPasswordIs(password));
+      setPending({ id: m.id, kind: 'password', value: password });
     }, reload);
 
-  const setDomain = (m, reload) =>
+  const saveDomain = (m, value, reload) =>
     act(async () => {
-      const value = window.prompt(T.domainPrompt, m.customDomain ?? '');
-      if (value === null) return;
       await api.updatePlatformMaster(m.id, { customDomain: value.trim() || null });
+      setPending(null);
+    }, reload);
+
+  const setSuspended = (m, suspended, reload) =>
+    act(async () => {
+      await api.updatePlatformMaster(m.id, { suspended });
+      setPending(null);
     }, reload);
 
   // The same buttons on a master's card and on their detail page; `reload`
@@ -72,16 +83,84 @@ export default function PlatformScreen({ T, lang, onAuthError }) {
   // state, which decides Suspend vs Unsuspend.
   const actions = (m, reload = load) => {
     const state = m.access.state;
+    const mine = pending?.id === m.id ? pending : null;
+    const dismiss = () => setPending(null);
+
+    if (mine?.kind === 'reset') {
+      return (
+        <ConfirmInline
+          T={T}
+          message={T.confirmResetPassword}
+          confirmLabel={T.resetPasswordBtn}
+          onConfirm={() => resetPassword(m, reload)}
+          onCancel={dismiss}
+        />
+      );
+    }
+    if (mine?.kind === 'suspend') {
+      return (
+        <ConfirmInline
+          T={T}
+          message={T.confirmSuspend}
+          confirmLabel={T.suspendBtn}
+          onConfirm={() => setSuspended(m, true, reload)}
+          onCancel={dismiss}
+        />
+      );
+    }
+    if (mine?.kind === 'password') {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13 }}>{T.resetPasswordResult}</span>
+          <code style={{ fontSize: 14, padding: '6px 10px', borderRadius: 8, background: 'var(--bg)', userSelect: 'all' }}>
+            {mine.value}
+          </code>
+          <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{T.newPasswordHint}</span>
+          <button className="btn-outline" onClick={dismiss}>{T.doneBtn}</button>
+        </div>
+      );
+    }
+    if (mine?.kind === 'domain') {
+      return (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveDomain(m, mine.value, reload);
+          }}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
+        >
+          <input
+            className="field-input"
+            style={{ width: 240 }}
+            value={mine.value}
+            onChange={(e) => setPending({ ...mine, value: e.target.value })}
+            placeholder="annabeauty.com"
+            aria-label={T.domainPrompt}
+            autoFocus
+          />
+          <button type="submit" className="btn-primary">{T.saveBtn}</button>
+          <button type="button" className="btn-outline" onClick={dismiss}>{T.cancelBtn}</button>
+          <span style={{ fontSize: 12, color: 'var(--muted)', flexBasis: '100%' }}>{T.domainPrompt}</span>
+        </form>
+      );
+    }
+
     return (
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         <button className="btn-outline" onClick={() => act(() => api.updatePlatformMaster(m.id, { extendTrialDays: 7 }), reload)}>
           {T.extendTrialBtn}
         </button>
-        <button className="btn-outline" onClick={() => setDomain(m, reload)}>{T.customDomainBtn}</button>
-        <button className="btn-outline" onClick={() => resetPassword(m, reload)}>{T.resetPasswordBtn}</button>
+        <button className="btn-outline" onClick={() => setPending({ id: m.id, kind: 'domain', value: m.customDomain ?? '' })}>
+          {T.customDomainBtn}
+        </button>
+        <button className="btn-outline" onClick={() => setPending({ id: m.id, kind: 'reset' })}>{T.resetPasswordBtn}</button>
+        {/* Suspending takes the master's page offline, so it asks; bringing it
+            back doesn't need to. */}
         <button
           className={state === 'suspended' ? 'btn-outline' : 'btn-danger-outline'}
-          onClick={() => act(() => api.updatePlatformMaster(m.id, { suspended: state !== 'suspended' }), reload)}
+          onClick={() =>
+            state === 'suspended' ? setSuspended(m, false, reload) : setPending({ id: m.id, kind: 'suspend' })
+          }
         >
           {state === 'suspended' ? T.unsuspendBtn : T.suspendBtn}
         </button>

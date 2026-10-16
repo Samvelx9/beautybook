@@ -14,8 +14,11 @@ export default function LoginScreen({ T, lang, setLang, go, login, loginError, l
 
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '20px 24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <a href="#welcome" onClick={(e) => { e.preventDefault(); go('welcome'); }} style={{ fontFamily: "'Newsreader',serif", fontSize: 18, color: 'var(--ink)' }}>
+      <div
+        className="admin-content"
+        style={{ flex: 'none', padding: '20px 20px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}
+      >
+        <a href="#welcome" onClick={(e) => { e.preventDefault(); go('welcome'); }} style={{ fontFamily: "'Newsreader',serif", fontSize: 20, color: 'var(--ink)' }}>
           {PRODUCT_NAME}
         </a>
         <LangSwitcher lang={lang} setLang={setLang} />

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api.js';
 import { currencySymbol, formatPrice, getMasterLanguages, localName, pluralize } from '../i18n.js';
 import { routeParam, setRouteParams } from '../route.js';
+import ConfirmInline from './ConfirmInline.jsx';
 
 const EMPTY_FORM = {
   nameEn: '',
@@ -21,6 +22,7 @@ export default function ServicesScreen({ T, lang, onAuthError }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState(null);
   // Treatments start folded: with a dozen zones each, an unfolded list is a
   // wall of rows. Opening one is how you get at its price list.
   // Which one is open is kept in the URL, so a reload leaves it open.
@@ -131,16 +133,18 @@ export default function ServicesScreen({ T, lang, onAuthError }) {
   }
 
   async function remove(s) {
-    if (!window.confirm(T.confirmDeleteService)) return;
+    setError(null);
     try {
       await api.deleteService(s.id);
       await load();
     } catch (err) {
       if (err instanceof ApiError && err.code === 'service_has_bookings') {
-        window.alert(T.serviceHasBookingsError);
+        setError('serviceHasBookingsError');
       } else if (!onAuthError(err)) {
         setError('genericError');
       }
+    } finally {
+      setConfirmingDeleteId(null);
     }
   }
 
@@ -239,7 +243,10 @@ export default function ServicesScreen({ T, lang, onAuthError }) {
                     isEditing={editingId === s.id}
                     onEdit={() => startEdit(s)}
                     onToggleActive={() => toggleActive(s)}
-                    onRemove={() => remove(s)}
+                    confirmingDelete={confirmingDeleteId === s.id}
+                    onRemove={() => setConfirmingDeleteId(s.id)}
+                    onConfirmRemove={() => remove(s)}
+                    onCancelRemove={() => setConfirmingDeleteId(null)}
                   />
                   {editingId === s.id && (
                     <ServiceForm
@@ -299,8 +306,8 @@ function ServiceForm({ T, lang, form, setForm, categories, saving, onSave, onCan
         {getMasterLanguages().includes('en') && <Field label={T.nameEnLabel} value={form.nameEn} onChange={(v) => setForm({ ...form, nameEn: v })} />}
         {getMasterLanguages().includes('ru') && <Field label={T.nameRuLabel} value={form.nameRu} onChange={(v) => setForm({ ...form, nameRu: v })} />}
         {getMasterLanguages().includes('hy') && <Field label={T.nameHyLabel} value={form.nameHy} onChange={(v) => setForm({ ...form, nameHy: v })} />}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <label style={{ fontSize: 12, color: 'var(--muted)' }}>{T.serviceCategoryLabel}</label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{T.serviceCategoryLabel}</span>
           <select
             className="field-input"
             value={form.categoryId}
@@ -312,7 +319,7 @@ function ServiceForm({ T, lang, form, setForm, categories, saving, onSave, onCan
               </option>
             ))}
           </select>
-        </div>
+        </label>
         <Field
           label={T.durationLabel}
           type="number"
@@ -344,7 +351,7 @@ function ServiceForm({ T, lang, form, setForm, categories, saving, onSave, onCan
   );
 }
 
-function ServiceRow({ T, lang, service, isEditing, onEdit, onToggleActive, onRemove }) {
+function ServiceRow({ T, lang, service, isEditing, onEdit, onToggleActive, confirmingDelete, onRemove, onConfirmRemove, onCancelRemove }) {
   return (
     <div
       className="card"
@@ -365,26 +372,30 @@ function ServiceRow({ T, lang, service, isEditing, onEdit, onToggleActive, onRem
             : `${service.duration_minutes} ${T.minUnit} · ${formatPrice(service.price, lang)}`}
         </span>
       </div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button className="btn-outline" onClick={onEdit} disabled={isEditing}>
-          {T.editBtn}
-        </button>
-        <button className="btn-outline" onClick={onToggleActive}>
-          {service.is_active ? T.deactivateBtn : T.activateBtn}
-        </button>
-        <button className="btn-danger-outline" onClick={onRemove}>
-          {T.deleteBtn}
-        </button>
-      </div>
+      {confirmingDelete ? (
+        <ConfirmInline T={T} message={T.confirmDeleteService} onConfirm={onConfirmRemove} onCancel={onCancelRemove} />
+      ) : (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn-outline" onClick={onEdit} disabled={isEditing}>
+            {T.editBtn}
+          </button>
+          <button className="btn-outline" onClick={onToggleActive}>
+            {service.is_active ? T.deactivateBtn : T.activateBtn}
+          </button>
+          <button className="btn-danger-outline" onClick={onRemove}>
+            {T.deleteBtn}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 function Field({ label, value, onChange, type = 'text' }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <label style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</label>
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</span>
       <input className="field-input" type={type} value={value} onChange={(e) => onChange(e.target.value)} />
-    </div>
+    </label>
   );
 }

@@ -40,8 +40,12 @@ a {
   text-decoration: none;
 }
 
-a:hover {
-  color: var(--terracotta);
+/* Touch screens have no hover — without the media query a tapped link stays
+   terracotta until the next tap somewhere else. */
+@media (hover: hover) {
+  a:hover {
+    color: var(--terracotta);
+  }
 }
 
 button {
@@ -49,6 +53,23 @@ button {
   cursor: pointer;
   border: none;
   background: none;
+}
+
+/* Every tappable thing answers the moment it's pressed, not when the finger
+   lifts. touch-action also drops the old 300ms double-tap-zoom delay. */
+button,
+.tap {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: transform 100ms ease-out;
+}
+button:not(:disabled):active,
+.tap:active {
+  transform: scale(0.97);
+}
+/* Full-width cards travel further for the same scale, so they press less. */
+.tap-wide:not(:disabled):active {
+  transform: scale(0.985);
 }
 
 input {
@@ -74,7 +95,11 @@ input {
 .app-shell {
   width: 100%;
   max-width: 480px;
-  min-height: 100dvh;
+  /* A fixed height, not a minimum: each screen's .scrollarea then scrolls on
+     its own and the basket bar / footer buttons stay pinned at the bottom.
+     With min-height the shell grew to fit everything and the whole document
+     scrolled instead, leaving the basket bar below the fold. */
+  height: 100dvh;
   background: var(--bg);
   display: flex;
   flex-direction: column;
@@ -86,5 +111,67 @@ input {
 @media (min-width: 481px) {
   .app-shell {
     box-shadow: 0 0 40px rgba(0, 0, 0, 0.06);
+  }
+}
+
+/* Pinned bottom bars: instead of a hard rule, content fades out where it
+   meets the bar. */
+.bottom-bar {
+  position: relative;
+  background: var(--surface);
+}
+.bottom-bar::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 20px;
+  background: linear-gradient(to bottom, transparent, var(--surface));
+  pointer-events: none;
+}
+
+/* The language menu grows out of the button that opened it. */
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+.menu-pop {
+  transform-origin: top right;
+  animation: menu-in 160ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+/* A small control that still takes a full-size tap: the hit area extends past
+   the visible pill. */
+.hit-expand {
+  position: relative;
+}
+.hit-expand::after {
+  content: '';
+  position: absolute;
+  inset: -9px -6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  button:active,
+  .tap:active,
+  .tap-wide:active {
+    transform: none !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --muted: oklch(40% 0.02 90);
+    --line: oklch(65% 0.015 85);
   }
 }

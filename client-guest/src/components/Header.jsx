@@ -1,5 +1,6 @@
 import LangSwitcher from './LangSwitcher.jsx';
 import ProgressDots from './ProgressDots.jsx';
+import { rem } from '../lib/rem.js';
 
 export default function Header({ title, onBack, showDots, dotStep, lang, langMenuOpen, toggleLangMenu, setLang }) {
   return (
@@ -12,7 +13,7 @@ export default function Header({ title, onBack, showDots, dotStep, lang, langMen
           <path d="M15 6L9 12L15 18"></path>
         </svg>
       </button>
-      <h3 style={{ fontSize: 18, fontWeight: 500, flex: 1, minWidth: 0 }}>{title}</h3>
+      <h3 style={{ fontSize: rem(18), fontWeight: 500, flex: 1, minWidth: 0 }}>{title}</h3>
       {showDots && <ProgressDots step={dotStep} />}
       <LangSwitcher lang={lang} langMenuOpen={langMenuOpen} toggleLangMenu={toggleLangMenu} setLang={setLang} />
     </div>

@@ -7,6 +7,7 @@ import { goToTab, readRoute } from './route.js';
 import WelcomeScreen from './components/WelcomeScreen.jsx';
 import LoginScreen from './components/LoginScreen.jsx';
 import SignupScreen from './components/SignupScreen.jsx';
+import PrivacyScreen from './components/PrivacyScreen.jsx';
 import AdminLayout from './components/AdminLayout.jsx';
 import DashboardScreen from './components/DashboardScreen.jsx';
 import BookingsScreen from './components/BookingsScreen.jsx';
@@ -49,6 +50,14 @@ function storedLang() {
 
 export default function App() {
   const [lang, setLangState] = useState(storedLang);
+
+  // Screen readers pick a voice, and browsers decide whether to offer
+  // translation, from <html lang> — so it follows the language on screen
+  // rather than staying at index.html's "en".
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+
   const [tab, setTabState] = useState(routeTab);
   const auth = useAdminAuth();
   // The logged-in master's account (GET /api/admin/account): their page,
@@ -102,6 +111,13 @@ export default function App() {
     }
   };
   const T = STRINGS[lang];
+
+  // The privacy policy is for everyone: visitors, masters, and clients who
+  // follow the link in a booking page's footer — logged in or not.
+  if (tab === 'privacy') {
+    const go = (page) => setTab(auth.loggedIn && page === 'welcome' ? 'dashboard' : page);
+    return <PrivacyScreen lang={lang} setLang={setLang} go={go} />;
+  }
 
   if (!auth.loggedIn) {
     const page = PUBLIC_PAGES.includes(tab) ? tab : 'welcome';

@@ -2,6 +2,7 @@ import LangSwitcher from './LangSwitcher.jsx';
 import { formatPrice, pluralize, localName } from '../i18n.js';
 import { formatDuration } from 'salon-shared/booking';
 import { ClockIcon, ChevronLeftIcon, CategoryIcon } from './Icons.jsx';
+import { rem } from '../lib/rem.js';
 
 // The price list for one treatment. Zones toggle rather than replace one
 // another: a visit often covers several, and going back to the landing page for
@@ -68,11 +69,11 @@ export default function ServicesScreen(f) {
               <CategoryIcon slug={selectedCategory?.slug} size={24} />
             </span>
             <div style={{ minWidth: 0 }}>
-              <h2 style={{ fontSize: 24, fontWeight: 500, lineHeight: 1.2 }}>
+              <h2 style={{ fontSize: rem(24), fontWeight: 500, lineHeight: 1.2 }}>
                 {selectedCategory ? localName(selectedCategory, lang) : ''}
               </h2>
               {localName(selectedCategory, lang, 'description') && (
-                <p style={{ margin: '4px 0 0', fontSize: 12.5, lineHeight: 1.5, color: 'var(--muted)' }}>
+                <p style={{ margin: '4px 0 0', fontSize: rem(12.5), lineHeight: 1.5, color: 'var(--muted)' }}>
                   {localName(selectedCategory, lang, 'description')}
                 </p>
               )}
@@ -81,7 +82,7 @@ export default function ServicesScreen(f) {
         </div>
 
         <div style={{ padding: '12px 24px 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--muted)', textTransform: 'uppercase' }}>
+          <span style={{ fontSize: rem(11), letterSpacing: '0.08em', color: 'var(--muted)', textTransform: 'uppercase' }}>
             {T.step1of3}
           </span>
           <div style={{ display: 'flex', gap: 6 }}>
@@ -92,18 +93,19 @@ export default function ServicesScreen(f) {
         </div>
 
         <div style={{ padding: '12px 24px 8px' }}>
-          <h3 style={{ fontSize: 19, fontWeight: 500 }}>{T.chooseZone}</h3>
+          <h3 style={{ fontSize: rem(19), fontWeight: 500 }}>{T.chooseZone}</h3>
         </div>
 
         <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {servicesLoading && <span style={{ fontSize: 14, color: 'var(--muted)' }}>{T.loading}</span>}
+          {servicesLoading && <span style={{ fontSize: rem(14), color: 'var(--muted)' }}>{T.loading}</span>}
           {!servicesLoading && zones.length === 0 && (
-            <span style={{ fontSize: 14, color: 'var(--muted)' }}>{T.noZonesYet}</span>
+            <span style={{ fontSize: rem(14), color: 'var(--muted)' }}>{T.noZonesYet}</span>
           )}
           {zones.map((s) => {
             const selected = chosen.includes(s.id);
             return (
               <button
+                className="tap-wide"
                 key={s.id}
                 onClick={() => toggleService(s.id)}
                 style={{
@@ -117,20 +119,20 @@ export default function ServicesScreen(f) {
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   gap: 12,
-                  transition: 'background 0.15s ease',
+                  transition: 'background 0.15s ease, transform 100ms ease-out',
                 }}
               >
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span style={{ fontFamily: "'Newsreader',serif", fontSize: 16, color: 'var(--ink)' }}>{localName(s, lang)}</span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--muted)' }}>
+                  <span style={{ fontFamily: "'Newsreader',serif", fontSize: rem(16), color: 'var(--ink)' }}>{localName(s, lang)}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: rem(12), color: 'var(--muted)' }}>
                     <ClockIcon size={13} color="var(--muted)" strokeWidth={2} />
                     {isHourly ? T.byTheHour : `${s.duration_minutes} ${T.minUnit}`}
                   </span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--terracotta)' }}>
+                  <span style={{ fontSize: rem(14), fontWeight: 600, color: 'var(--terracotta)' }}>
                     {formatPrice(s.price, lang)}
-                    {isHourly && <span style={{ fontSize: 11, fontWeight: 500 }}> {T.perHourSuffix}</span>}
+                    {isHourly && <span style={{ fontSize: rem(11), fontWeight: 500 }}> {T.perHourSuffix}</span>}
                   </span>
                   <div
                     style={{
@@ -170,17 +172,18 @@ export default function ServicesScreen(f) {
 // never out of sight once something is in it.
 export function BasketBar({ T, lang, basket, onContinue, onAddMore }) {
   return (
-    <div style={{ padding: '12px 24px 18px', borderTop: '1px solid var(--line)', background: 'var(--surface)' }}>
+    <div className="bottom-bar" style={{ padding: '12px 24px 18px' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
-        <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+        <span style={{ fontSize: rem(13), color: 'var(--muted)' }}>
           {basket.zones.length} {pluralize(basket.zones.length, lang, 'zones')} · {formatDuration(basket.minutes, T.hourUnit, T.minUnit)}
         </span>
-        <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--terracotta)' }}>
+        <span style={{ fontSize: rem(15), fontWeight: 700, color: 'var(--terracotta)' }}>
           {formatPrice(basket.price, lang)}
         </span>
       </div>
       {onAddMore && (
         <button
+          className="tap-wide"
           onClick={onAddMore}
           style={{
             width: '100%',
@@ -188,7 +191,7 @@ export function BasketBar({ T, lang, basket, onContinue, onAddMore }) {
             borderRadius: 999,
             border: '1px solid var(--line)',
             background: 'var(--white)',
-            fontSize: 13.5,
+            fontSize: rem(13.5),
             fontWeight: 600,
             color: 'var(--ink)',
             marginBottom: 8,
@@ -198,8 +201,9 @@ export function BasketBar({ T, lang, basket, onContinue, onAddMore }) {
         </button>
       )}
       <button
+        className="tap-wide"
         onClick={onContinue}
-        style={{ width: '100%', padding: 16, borderRadius: 999, background: 'var(--sage)', color: 'var(--white)', fontSize: 15, fontWeight: 600 }}
+        style={{ width: '100%', padding: 16, borderRadius: 999, background: 'var(--sage)', color: 'var(--white)', fontSize: rem(15), fontWeight: 600 }}
       >
         {T.continueBtn}
       </button>

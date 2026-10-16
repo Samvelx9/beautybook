@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api.js';
-import { LANG_META, LANG_ORDER, formatDate } from '../i18n.js';
+import { LANG_META, LANG_ORDER, formatDate, formatPlatformPrice } from '../i18n.js';
 import { CURRENCIES, timeZones } from '../options.js';
+import ConfirmInline from './ConfirmInline.jsx';
 
 function Section({ title, children }) {
   return (
@@ -69,6 +70,15 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
     suspended: T.stateSuspended,
   }[access.state];
   const subscribed = ['active', 'on_trial', 'past_due', 'cancelled'].includes(access.state);
+
+  // The platform's monthly price, as the operator set it.
+  const [platformPrice, setPlatformPrice] = useState(null);
+  useEffect(() => {
+    api
+      .getPlatformInfo()
+      .then((info) => setPlatformPrice(formatPlatformPrice(info.priceMonthlyMinor, info.priceCurrency, lang)))
+      .catch(() => setPlatformPrice(null));
+  }, [lang]);
 
   async function subscribe() {
     setBusy('billing');
@@ -153,9 +163,11 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
 
   // ---------------------------------------------------------------- delete
   const [deletePassword, setDeletePassword] = useState('');
-  async function deleteAccount(e) {
-    e.preventDefault();
-    if (!window.confirm(T.deleteAccountHint)) return;
+  // Submitting the password only arms the delete; the inline question that
+  // replaces the button is the last step, same as every other delete here.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  async function deleteAccount() {
+    setConfirmingDelete(false);
     try {
       await api.deleteAccount(deletePassword);
       onLogout();
@@ -182,6 +194,8 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
         <p style={{ ...muted, color: ['expired', 'past_due', 'suspended'].includes(access.state) ? 'var(--terracotta)' : 'var(--ink)' }}>
           {stateText}
         </p>
+        {/* What subscribing costs, before the button that does it. */}
+        {platformPrice && (!subscribed || access.state === 'cancelled') && <p style={muted}>{T.billingPrice(platformPrice)}</p>}
         {access.state !== 'suspended' && (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {!subscribed || access.state === 'cancelled' ? (
@@ -280,7 +294,13 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
 
       <Section title={T.dangerSection}>
         <p style={muted}>{T.deleteAccountHint}</p>
-        <form onSubmit={deleteAccount} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            setConfirmingDelete(true);
+          }}
+          style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}
+        >
           <input
             className="field-input"
             style={{ maxWidth: 260 }}
@@ -290,7 +310,17 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
             value={deletePassword}
             onChange={(e) => setDeletePassword(e.target.value)}
           />
-          <button type="submit" className="btn-danger-outline" disabled={!deletePassword}>{T.deleteAccountBtn}</button>
+          {confirmingDelete ? (
+            <ConfirmInline
+              T={T}
+              message={T.confirmDeleteAccount}
+              confirmLabel={T.deleteAccountBtn}
+              onConfirm={deleteAccount}
+              onCancel={() => setConfirmingDelete(false)}
+            />
+          ) : (
+            <button type="submit" className="btn-danger-outline" disabled={!deletePassword}>{T.deleteAccountBtn}</button>
+          )}
         </form>
         {note('delete')}
       </Section>

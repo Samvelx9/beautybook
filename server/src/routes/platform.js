@@ -6,6 +6,7 @@ import { asyncHandler } from '../lib/asyncHandler.js';
 import { requirePlatformAdmin } from '../middleware/auth.js';
 import { accessSummary, masterSiteUrl, MASTER_COLUMNS } from '../services/masters.js';
 import { changeOwnPassword } from '../services/accounts.js';
+import { getPlatformSettings, updatePlatformSettings } from '../services/platformSettings.js';
 
 // The platform operator's view of every master: who signed up, how their
 // trial or subscription stands, and the few levers an operator needs —
@@ -50,6 +51,17 @@ platformRouter.post('/password', asyncHandler(async (req, res) => {
   const result = await changeOwnPassword(req.user.id, req.body?.currentPassword, req.body?.newPassword);
   if (result.error) return res.status(result.status).json({ error: result.error });
   res.json({ token: result.token });
+}));
+
+// Platform-wide settings: the advertised monthly price and the support email.
+platformRouter.get('/settings', asyncHandler(async (_req, res) => {
+  res.json(await getPlatformSettings());
+}));
+
+platformRouter.patch('/settings', asyncHandler(async (req, res) => {
+  const result = await updatePlatformSettings(req.body);
+  if (result.error) return res.status(400).json({ error: result.error });
+  res.json(result);
 }));
 
 const idParam = (req) => {

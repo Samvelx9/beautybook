@@ -128,14 +128,17 @@ export default function SignupScreen({ T, lang, setLang, go, onSignedUp }) {
 
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '20px 24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <a href="#welcome" onClick={(e) => { e.preventDefault(); go('welcome'); }} style={{ fontFamily: "'Newsreader',serif", fontSize: 18, color: 'var(--ink)' }}>
+      <div
+        className="admin-content"
+        style={{ flex: 'none', padding: '20px 20px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}
+      >
+        <a href="#welcome" onClick={(e) => { e.preventDefault(); go('welcome'); }} style={{ fontFamily: "'Newsreader',serif", fontSize: 20, color: 'var(--ink)' }}>
           {PRODUCT_NAME}
         </a>
         <LangSwitcher lang={lang} setLang={setLang} />
       </div>
 
-      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', padding: '28px 16px 48px' }}>
+      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '28px 16px 48px' }}>
         <form onSubmit={onSubmit} className="card" style={{ width: '100%', maxWidth: 520, display: 'flex', flexDirection: 'column', gap: 18 }} noValidate>
           <h2 style={{ fontSize: 24, fontWeight: 500, textAlign: 'center' }}>{T.signupTitle}</h2>
 
@@ -245,6 +248,14 @@ export default function SignupScreen({ T, lang, setLang, go, onSignedUp }) {
             {submitting ? T.signingUp : T.signupBtn}
           </button>
           <p style={{ margin: 0, fontSize: 12.5, textAlign: 'center', color: 'var(--muted)' }}>{T.heroNoCard}</p>
+          {/* Opens in a new tab so a half-filled form isn't lost. */}
+          <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, textAlign: 'center', color: 'var(--muted)' }}>
+            {T.signupConsent.split('{link}')[0]}
+            <a href="#privacy" target="_blank" rel="noreferrer">
+              {T.signupConsentLink}
+            </a>
+            {T.signupConsent.split('{link}')[1]}
+          </p>
 
           <p style={{ margin: 0, fontSize: 13, textAlign: 'center', color: 'var(--muted)' }}>
             {T.haveAccount}{' '}

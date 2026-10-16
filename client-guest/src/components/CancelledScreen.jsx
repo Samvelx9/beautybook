@@ -1,4 +1,5 @@
 import LangSwitcher from './LangSwitcher.jsx';
+import { rem } from '../lib/rem.js';
 
 export default function CancelledScreen(f) {
   const { T } = f;
@@ -15,16 +16,17 @@ export default function CancelledScreen(f) {
             <path d="M15 9L9 15"></path>
           </svg>
           <div>
-            <h2 style={{ fontSize: 24, fontWeight: 500 }}>{T.bookingCancelled}</h2>
-            <p style={{ margin: '8px 0 0', fontSize: 13.5, color: 'var(--muted)' }}>{T.cancelledCaption}</p>
+            <h2 style={{ fontSize: rem(24), fontWeight: 500 }}>{T.bookingCancelled}</h2>
+            <p style={{ margin: '8px 0 0', fontSize: rem(13.5), color: 'var(--muted)' }}>{T.cancelledCaption}</p>
           </div>
         </div>
       </div>
 
-      <div style={{ padding: '14px 24px 20px', borderTop: '1px solid var(--line)', background: 'var(--surface)' }}>
+      <div className="bottom-bar" style={{ padding: '14px 24px 20px' }}>
         <button
+          className="tap-wide"
           onClick={f.bookAnother}
-          style={{ width: '100%', padding: 16, borderRadius: 999, background: 'var(--sage)', color: 'var(--white)', fontSize: 15, fontWeight: 600 }}
+          style={{ width: '100%', padding: 16, borderRadius: 999, background: 'var(--sage)', color: 'var(--white)', fontSize: rem(15), fontWeight: 600 }}
         >
           {T.bookNewAppointment}
         </button>

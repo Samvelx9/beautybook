@@ -29,6 +29,9 @@ export default function LangSwitcher({ lang, setLang }) {
     <div ref={rootRef} style={{ position: 'relative' }}>
       <button
         onClick={() => setOpen((v) => !v)}
+        className="hit-expand"
+        aria-haspopup="menu"
+        aria-expanded={open}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -48,6 +51,7 @@ export default function LangSwitcher({ lang, setLang }) {
       </button>
       {open && (
         <div
+          className="menu-pop"
           style={{
             position: 'absolute',
             top: 'calc(100% + 6px)',

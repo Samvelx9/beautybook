@@ -1,4 +1,5 @@
 import { MONTH_SHORT, dayLabel, parseLocalDate, formatNotice, getMinNotice } from '../i18n.js';
+import { rem } from '../lib/rem.js';
 
 // A taken time is shown, struck through and unclickable, rather than left out:
 // a grid that jumps from 14:30 to 16:00 looks broken, while a greyed 15:00 says
@@ -48,16 +49,16 @@ export default function SlotPicker({ T, lang, slotsData, slotsLoading, selectedD
                 gap: 4,
               }}
             >
-              <span style={{ fontSize: 11, color: selected ? 'var(--white)' : 'var(--ink)', opacity: 0.8, whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: rem(11), color: selected ? 'var(--white)' : 'var(--ink)', opacity: 0.8, whiteSpace: 'nowrap' }}>
                 {dayLabel(dateObj, index, lang)}
               </span>
-              <span style={{ fontSize: 15, fontWeight: 600, color: selected ? 'var(--white)' : 'var(--ink)' }}>
+              <span style={{ fontSize: rem(15), fontWeight: 600, color: selected ? 'var(--white)' : 'var(--ink)' }}>
                 {dateObj.getDate()}
               </span>
               {/* Past a week the bare day number is ambiguous, so the month
                   is shown where it starts (and on the first day). */}
               {days.length > 7 && (index === 0 || dateObj.getDate() === 1) && (
-                <span style={{ fontSize: 10, color: selected ? 'var(--white)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: rem(10), color: selected ? 'var(--white)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
                   {MONTH_SHORT[lang][dateObj.getMonth()]}
                 </span>
               )}
@@ -67,20 +68,20 @@ export default function SlotPicker({ T, lang, slotsData, slotsLoading, selectedD
       </div>
 
       <div style={{ padding: '18px 24px 8px' }}>
-        <span style={{ fontSize: 13, color: 'var(--muted)' }}>{T.onlyRealOpenings}</span>
+        <span style={{ fontSize: rem(13), color: 'var(--muted)' }}>{T.onlyRealOpenings}</span>
       </div>
 
       {/* Said whenever the master's notice period rules out times on this day
           — today, or later days too when the notice is a day or two. */}
       {getMinNotice() > 0 && day?.unavailable?.some((u) => u.reason === 'past') && (
         <div style={{ padding: '0 24px 8px' }}>
-          <span style={{ fontSize: 12.5, color: 'var(--muted)', fontStyle: 'italic' }}>{T.sameDayNotice(formatNotice(getMinNotice(), lang))}</span>
+          <span style={{ fontSize: rem(12.5), color: 'var(--muted)', fontStyle: 'italic' }}>{T.sameDayNotice(formatNotice(getMinNotice(), lang))}</span>
         </div>
       )}
 
       {slotsLoading ? (
         <div style={{ padding: '4px 24px 24px' }}>
-          <span style={{ fontSize: 14, color: 'var(--muted)' }}>{T.loading}</span>
+          <span style={{ fontSize: rem(14), color: 'var(--muted)' }}>{T.loading}</span>
         </div>
       ) : daySlots.length > 0 ? (
         <>
@@ -89,7 +90,7 @@ export default function SlotPicker({ T, lang, slotsData, slotsLoading, selectedD
               the cutoff, which is a different thing to say. */}
           {!anyFree && (
             <div style={{ padding: '0 24px 10px' }}>
-              <span style={{ fontSize: 13, color: anyBooked ? 'var(--terracotta)' : 'var(--muted)' }}>
+              <span style={{ fontSize: rem(13), color: anyBooked ? 'var(--terracotta)' : 'var(--muted)' }}>
                 {anyBooked ? T.dayFullyBooked : T.noOpenings}
               </span>
             </div>
@@ -107,7 +108,7 @@ export default function SlotPicker({ T, lang, slotsData, slotsLoading, selectedD
                   style={{
                     padding: '12px 0',
                     borderRadius: 12,
-                    fontSize: 14,
+                    fontSize: rem(14),
                     fontWeight: 500,
                     cursor: reason ? 'default' : 'pointer',
                     textDecoration: reason ? 'line-through' : 'none',
@@ -137,7 +138,7 @@ export default function SlotPicker({ T, lang, slotsData, slotsLoading, selectedD
                   flexShrink: 0,
                 }}
               />
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{T.slotTakenTag}</span>
+              <span style={{ fontSize: rem(12), color: 'var(--muted)' }}>{T.slotTakenTag}</span>
             </div>
           )}
         </>
@@ -152,7 +153,7 @@ export default function SlotPicker({ T, lang, slotsData, slotsLoading, selectedD
             textAlign: 'center',
           }}
         >
-          <span style={{ fontSize: 14, color: 'var(--muted)' }}>{T.noOpenings}</span>
+          <span style={{ fontSize: rem(14), color: 'var(--muted)' }}>{T.noOpenings}</span>
         </div>
       )}
     </div>

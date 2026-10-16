@@ -3,6 +3,7 @@ import ZoneList from './ZoneList.jsx';
 import { CalendarIcon, SendIcon } from './Icons.jsx';
 import { formatDateAt, formatPrice } from '../i18n.js';
 import { splitLocalDateTime } from '../lib/time.js';
+import { rem } from '../lib/rem.js';
 
 export default function ConfirmationScreen(f) {
   const { T, lang, activeBooking } = f;
@@ -35,27 +36,27 @@ export default function ConfirmationScreen(f) {
             <path d="M8 12.4L10.5 15L16 9"></path>
           </svg>
           <div>
-            <h2 style={{ fontSize: 24, fontWeight: 500 }}>{T.allSet}</h2>
-            <p style={{ margin: '8px 0 0', fontSize: 13.5, color: 'var(--muted)' }}>{T.confirmationNotified}</p>
+            <h2 style={{ fontSize: rem(24), fontWeight: 500 }}>{T.allSet}</h2>
+            <p style={{ margin: '8px 0 0', fontSize: rem(13.5), color: 'var(--muted)' }}>{T.confirmationNotified}</p>
           </div>
 
           <div style={{ width: '100%', textAlign: 'left', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 16, padding: 18, display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 13, color: 'var(--muted)' }}>{T.summaryService}</span>
+              <span style={{ fontSize: rem(13), color: 'var(--muted)' }}>{T.summaryService}</span>
               <ZoneList items={activeBooking.items} lang={lang} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 13, color: 'var(--muted)' }}>{T.summaryWhen}</span>
-              <span style={{ fontSize: 13, fontWeight: 600 }}>{dateTimeSummary}</span>
+              <span style={{ fontSize: rem(13), color: 'var(--muted)' }}>{T.summaryWhen}</span>
+              <span style={{ fontSize: rem(13), fontWeight: 600 }}>{dateTimeSummary}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 13, color: 'var(--muted)' }}>{T.summaryName}</span>
-              <span style={{ fontSize: 13, fontWeight: 600 }}>{activeBooking.customerName}</span>
+              <span style={{ fontSize: rem(13), color: 'var(--muted)' }}>{T.summaryName}</span>
+              <span style={{ fontSize: rem(13), fontWeight: 600 }}>{activeBooking.customerName}</span>
             </div>
             <div style={{ height: 1, background: 'var(--line)', margin: '2px 0' }} />
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 13, color: 'var(--muted)' }}>{T.summaryPrice}</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--terracotta)' }}>{formatPrice(activeBooking.priceAtBooking, lang)}</span>
+              <span style={{ fontSize: rem(13), color: 'var(--muted)' }}>{T.summaryPrice}</span>
+              <span style={{ fontSize: rem(14), fontWeight: 700, color: 'var(--terracotta)' }}>{formatPrice(activeBooking.priceAtBooking, lang)}</span>
             </div>
           </div>
 
@@ -64,13 +65,13 @@ export default function ConfirmationScreen(f) {
           <div style={{ width: '100%', display: 'flex', gap: 10 }}>
             <button
               onClick={f.goRescheduleFromConfirmation}
-              style={{ flex: 1, padding: 14, borderRadius: 999, border: '1.5px solid var(--sage)', background: 'none', color: 'var(--sage)', fontSize: 14, fontWeight: 600 }}
+              style={{ flex: 1, padding: 14, borderRadius: 999, border: '1.5px solid var(--sage)', background: 'none', color: 'var(--sage)', fontSize: rem(14), fontWeight: 600 }}
             >
               {T.reschedule}
             </button>
             <button
               onClick={f.goCancelFromConfirmation}
-              style={{ flex: 1, padding: 14, borderRadius: 999, border: '1.5px solid var(--terracotta)', background: 'none', color: 'var(--terracotta)', fontSize: 14, fontWeight: 600 }}
+              style={{ flex: 1, padding: 14, borderRadius: 999, border: '1.5px solid var(--terracotta)', background: 'none', color: 'var(--terracotta)', fontSize: rem(14), fontWeight: 600 }}
             >
               {T.cancelBooking}
             </button>
@@ -78,10 +79,11 @@ export default function ConfirmationScreen(f) {
         </div>
       </div>
 
-      <div style={{ padding: '14px 24px 20px', borderTop: '1px solid var(--line)', background: 'var(--surface)' }}>
+      <div className="bottom-bar" style={{ padding: '14px 24px 20px' }}>
         <button
+          className="tap-wide"
           onClick={f.bookAnother}
-          style={{ width: '100%', padding: 16, borderRadius: 999, background: 'none', border: '1.5px solid var(--line)', color: 'var(--muted)', fontSize: 14, fontWeight: 600 }}
+          style={{ width: '100%', padding: 16, borderRadius: 999, background: 'none', border: '1.5px solid var(--line)', color: 'var(--muted)', fontSize: rem(14), fontWeight: 600 }}
         >
           {T.bookAnother}
         </button>
@@ -100,7 +102,7 @@ const reminderButton = {
   border: '1px solid var(--line)',
   background: 'var(--surface)',
   color: 'var(--ink)',
-  fontSize: 14,
+  fontSize: rem(14),
   fontWeight: 600,
   textAlign: 'left',
   textDecoration: 'none',
@@ -118,7 +120,7 @@ function Reminders({ f }) {
 
   return (
     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8, textAlign: 'left' }}>
-      <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, letterSpacing: 0.3 }}>{T.stayReminded}</span>
+      <span style={{ fontSize: rem(12), color: 'var(--muted)', fontWeight: 600, letterSpacing: 0.3 }}>{T.stayReminded}</span>
       {calendarUrl && (
         <a href={calendarUrl} style={reminderButton}>
           <CalendarIcon />
@@ -130,7 +132,7 @@ function Reminders({ f }) {
           <SendIcon />
           <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span>{T.telegramReminders}</span>
-            <span style={{ fontSize: 12, fontWeight: 500, color: telegramOpened ? 'var(--sage)' : 'var(--muted)' }}>
+            <span style={{ fontSize: rem(12), fontWeight: 500, color: telegramOpened ? 'var(--sage)' : 'var(--muted)' }}>
               {telegramOpened ? T.telegramPressStart : T.telegramCaption}
             </span>
           </span>

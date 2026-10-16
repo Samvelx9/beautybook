@@ -89,7 +89,9 @@ export default function AdminLayout({ T, lang, setLang, tabs, tab, setTab, onLog
 
       <AccessBanner T={T} access={account?.access} onOpen={() => setTab('settings')} />
 
-      <div style={{ borderBottom: '1px solid var(--line)', background: 'var(--surface)' }}>
+      {/* The tabs stay in reach on long screens (dashboard, home page) instead
+          of scrolling away; content passes underneath the frosted bar. */}
+      <div className="tab-bar">
         <div className="admin-content" style={{ padding: 0, display: 'flex', gap: 4, overflowX: 'auto' }}>
           {tabs.map((t) => (
             <button

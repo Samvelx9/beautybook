@@ -9,6 +9,7 @@ import { signToken } from '../middleware/auth.js';
 import { MIN_PASSWORD_LENGTH } from '../services/accounts.js';
 import { createMaster, getMasterById, slugProblem } from '../services/masters.js';
 import { applyTemplate, templateList, TEMPLATES } from '../services/templates.js';
+import { getPlatformSettings } from '../services/platformSettings.js';
 
 // Signing up and logging in — public, at app.<PLATFORM_DOMAIN>.
 export const authRouter = Router();
@@ -49,6 +50,13 @@ authRouter.get('/slug', slugLimit, asyncHandler(async (req, res) => {
 authRouter.get('/templates', (_req, res) => {
   res.json(templateList());
 });
+
+// GET /api/auth/platform — what the public pages show about the platform
+// itself: the monthly price after the trial, and the support address the
+// privacy policy points to.
+authRouter.get('/platform', asyncHandler(async (_req, res) => {
+  res.json(await getPlatformSettings());
+}));
 
 // POST /api/auth/signup — a new master, their login, their (empty) page and a
 // free trial, all in one transaction. Answers with a session token so the new

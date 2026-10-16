@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import LangSwitcher from './LangSwitcher.jsx';
 import { api } from '../api.js';
 import { splitLocalDateTime } from '../lib/time.js';
-import { formatPrice, WEEKDAY_FULL, localName } from '../i18n.js';
+import { formatPrice, WEEKDAY_FULL, localName, PRODUCT_NAME, PLATFORM_DOMAIN } from '../i18n.js';
 import { BasketBar } from './ServicesScreen.jsx';
 import {
   telHref,
@@ -24,6 +24,7 @@ import {
   ChevronRightIcon,
   CategoryIcon,
 } from './Icons.jsx';
+import { rem } from '../lib/rem.js';
 
 // Business hours read Monday-first, the convention in Armenia, while the
 // database keys weekly_hours by JS day number (0 = Sunday).
@@ -65,8 +66,12 @@ export default function LandingScreen(f) {
   // Today as the master's calendar has it, not the viewer's.
   const todayDow = splitLocalDateTime(new Date().toISOString()).dateObj.getDay();
 
-  const scrollToTreatments = () =>
-    treatmentsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // A long glide down the page is exactly the motion a reduced-motion setting
+  // asks to skip, so those guests jump straight to the list.
+  const scrollToTreatments = () => {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    treatmentsRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  };
 
   return (
     <>
@@ -99,7 +104,7 @@ export default function LandingScreen(f) {
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
             <HeartLeafIcon size={22} />
-            <span style={{ fontFamily: "'Newsreader',serif", fontSize: 17, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <span style={{ fontFamily: "'Newsreader',serif", fontSize: rem(17), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {ownerName}
             </span>
           </div>
@@ -114,15 +119,17 @@ export default function LandingScreen(f) {
 
         <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 26 }}>
           <Portrait photoVersion={profile?.photoVersion} ownerName={ownerName} />
-          <h1 style={{ marginTop: 18, fontSize: 32, fontWeight: 500, lineHeight: 1.15, textAlign: 'center' }}>
+          <h1 style={{ marginTop: 18, fontSize: rem(32), fontWeight: 500, lineHeight: 1.1, letterSpacing: '-0.015em', textAlign: 'center' }}>
             {ownerName}
           </h1>
-          <p style={{ margin: '8px 0 0', fontSize: 14.5, lineHeight: 1.55, color: 'var(--muted)', textAlign: 'center', maxWidth: 340 }}>
+          <p style={{ margin: '8px 0 0', fontSize: rem(14.5), lineHeight: 1.55, color: 'var(--muted)', textAlign: 'center', maxWidth: 340 }}>
             {tagline}
           </p>
           {!open && (
-            <p role="status" style={{ marginTop: 22, padding: '12px 16px', borderRadius: 14, background: 'var(--terracotta-light)', fontSize: 14, lineHeight: 1.5, textAlign: 'center', maxWidth: 340 }}>
-              {T.pageClosed}
+            <p role="status" style={{ marginTop: 22, padding: '12px 16px', borderRadius: 14, background: 'var(--terracotta-light)', fontSize: rem(14), lineHeight: 1.5, textAlign: 'center', maxWidth: 340 }}>
+              {/* Pointing at contacts that aren't there would leave the guest
+                  stuck, so with none the message only says when to come back. */}
+              {contacts.length > 0 ? T.pageClosed : T.pageClosedNoContacts}
             </p>
           )}
           {open && <button
@@ -133,7 +140,7 @@ export default function LandingScreen(f) {
               borderRadius: 999,
               background: 'var(--sage)',
               color: 'var(--white)',
-              fontSize: 15,
+              fontSize: rem(15),
               fontWeight: 600,
               boxShadow: '0 10px 24px -12px var(--sage)',
             }}
@@ -142,11 +149,12 @@ export default function LandingScreen(f) {
           </button>}
           <a
             href="#"
+            className="hit-expand"
             onClick={(e) => {
               e.preventDefault();
               goToLookup();
             }}
-            style={{ marginTop: 14, fontSize: 12.5, fontWeight: 600 }}
+            style={{ marginTop: 14, fontSize: rem(12.5), fontWeight: 600 }}
           >
             {T.manageLink}
           </a>
@@ -156,7 +164,7 @@ export default function LandingScreen(f) {
       {/* --------------------------------------------------------------- about */}
       {about && (
         <Section title={T.aboutMe}>
-          <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.75, color: 'var(--ink)', whiteSpace: 'pre-line' }}>
+          <p style={{ margin: 0, fontSize: rem(14.5), lineHeight: 1.75, color: 'var(--ink)', whiteSpace: 'pre-line' }}>
             {about}
           </p>
         </Section>
@@ -165,9 +173,9 @@ export default function LandingScreen(f) {
       {/* ---------------------------------------------------------- treatments */}
       {open && <div ref={treatmentsRef} style={{ scrollMarginTop: 12 }}>
         <Section title={T.chooseTreatment} caption={T.chooseTreatmentCaption}>
-          {servicesLoading && <span style={{ fontSize: 14, color: 'var(--muted)' }}>{T.loading}</span>}
+          {servicesLoading && <span style={{ fontSize: rem(14), color: 'var(--muted)' }}>{T.loading}</span>}
           {catalogueError && (
-            <span style={{ fontSize: 14, color: 'var(--terracotta)' }}>{T.genericError}</span>
+            <span style={{ fontSize: rem(14), color: 'var(--terracotta)' }}>{T.genericError}</span>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {bookableCategories.map((category) => (
@@ -190,6 +198,7 @@ export default function LandingScreen(f) {
             {contacts.map(({ key, Icon, label, value, href }) => (
               <a
                 key={key}
+                className="tap tap-wide"
                 href={href}
                 target={href.startsWith('http') ? '_blank' : undefined}
                 rel={href.startsWith('http') ? 'noreferrer' : undefined}
@@ -219,10 +228,10 @@ export default function LandingScreen(f) {
                   <Icon size={18} />
                 </span>
                 <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-                  <span style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                  <span style={{ fontSize: rem(11), letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--muted)' }}>
                     {label}
                   </span>
-                  <span style={{ fontSize: 14.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: rem(14.5), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {value}
                   </span>
                 </span>
@@ -252,13 +261,13 @@ export default function LandingScreen(f) {
                 <PinIcon size={18} color="var(--terracotta)" />
               </span>
               <div style={{ minWidth: 0 }}>
-                <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.6, whiteSpace: 'pre-line' }}>{address}</p>
+                <p style={{ margin: 0, fontSize: rem(14.5), lineHeight: 1.6, whiteSpace: 'pre-line' }}>{address}</p>
                 {profile?.mapUrl && (
                   <a
                     href={profile.mapUrl}
                     target="_blank"
                     rel="noreferrer"
-                    style={{ display: 'inline-block', marginTop: 6, fontSize: 13, fontWeight: 600 }}
+                    style={{ display: 'inline-block', marginTop: 6, fontSize: rem(13), fontWeight: 600 }}
                   >
                     {T.openInMaps} →
                   </a>
@@ -279,7 +288,7 @@ export default function LandingScreen(f) {
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <ClockIcon size={16} />
-                <span style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                <span style={{ fontSize: rem(11), letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>
                   {T.openingHours}
                 </span>
               </div>
@@ -295,7 +304,7 @@ export default function LandingScreen(f) {
                         display: 'flex',
                         justifyContent: 'space-between',
                         gap: 12,
-                        fontSize: 13.5,
+                        fontSize: rem(13.5),
                         fontWeight: isToday ? 700 : 400,
                         color: isToday ? 'var(--ink)' : 'var(--muted)',
                       }}
@@ -313,8 +322,27 @@ export default function LandingScreen(f) {
         </Section>
       )}
 
-      <div style={{ padding: '8px 24px 32px', textAlign: 'center' }}>
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{T.brandName}</span>
+      {/* The platform credit, and its privacy policy — this page collects
+          clients' names and phone numbers, so the policy is one tap away. */}
+      <div style={{ padding: '8px 24px 32px', display: 'flex', justifyContent: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <a
+          href={`https://app.${PLATFORM_DOMAIN}/`}
+          target="_blank"
+          rel="noreferrer"
+          className="hit-expand"
+          style={{ fontSize: rem(12), color: 'var(--muted)' }}
+        >
+          {T.madeWith.replace('{product}', PRODUCT_NAME)}
+        </a>
+        <a
+          href={`https://app.${PLATFORM_DOMAIN}/#privacy`}
+          target="_blank"
+          rel="noreferrer"
+          className="hit-expand"
+          style={{ fontSize: rem(12), color: 'var(--muted)' }}
+        >
+          {T.privacyLink}
+        </a>
       </div>
     </div>
     {f.basket.zones.length > 0 && (
@@ -350,7 +378,7 @@ function Portrait({ photoVersion, ownerName }) {
         alignItems: 'center',
         justifyContent: 'center',
         fontFamily: "'Newsreader',serif",
-        fontSize: 52,
+        fontSize: rem(52),
         color: 'var(--sage)',
       }}
     >
@@ -362,8 +390,8 @@ function Portrait({ photoVersion, ownerName }) {
 function Section({ title, caption, children }) {
   return (
     <div style={{ padding: '22px 24px 0' }}>
-      <h3 style={{ fontSize: 19, fontWeight: 500, marginBottom: caption ? 4 : 12 }}>{title}</h3>
-      {caption && <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--muted)' }}>{caption}</p>}
+      <h3 style={{ fontSize: rem(19), fontWeight: 500, marginBottom: caption ? 4 : 12 }}>{title}</h3>
+      {caption && <p style={{ margin: '0 0 14px', fontSize: rem(13), color: 'var(--muted)' }}>{caption}</p>}
       {children}
     </div>
   );
@@ -375,6 +403,7 @@ function TreatmentCard({ T, lang, category, onSelect }) {
 
   return (
     <button
+      className="tap-wide"
       onClick={onSelect}
       style={{
         width: '100%',
@@ -403,13 +432,13 @@ function TreatmentCard({ T, lang, category, onSelect }) {
         <CategoryIcon slug={category.slug} size={24} />
       </span>
       <span style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
-        <span style={{ fontFamily: "'Newsreader',serif", fontSize: 17, color: 'var(--ink)' }}>
+        <span style={{ fontFamily: "'Newsreader',serif", fontSize: rem(17), color: 'var(--ink)' }}>
           {localName(category, lang)}
         </span>
         {description && (
-          <span style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--muted)' }}>{description}</span>
+          <span style={{ fontSize: rem(12.5), lineHeight: 1.5, color: 'var(--muted)' }}>{description}</span>
         )}
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--terracotta)' }}>
+        <span style={{ fontSize: rem(13), fontWeight: 600, color: 'var(--terracotta)' }}>
           {T.fromPrice} {formatPrice(fromPrice, lang)}
         </span>
       </span>

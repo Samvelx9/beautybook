@@ -1,3 +1,5 @@
+import { rem } from '../lib/rem.js';
+
 export default function SummaryBanner({ name, subtitle, actionLabel, onAction }) {
   return (
     <div
@@ -12,10 +14,10 @@ export default function SummaryBanner({ name, subtitle, actionLabel, onAction })
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <span style={{ fontSize: 14, fontWeight: 500 }}>{name}</span>
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{subtitle}</span>
+        <span style={{ fontSize: rem(14), fontWeight: 500 }}>{name}</span>
+        <span style={{ fontSize: rem(12), color: 'var(--muted)' }}>{subtitle}</span>
       </div>
-      <a href="#" onClick={(e) => { e.preventDefault(); onAction(); }} style={{ fontSize: 12, fontWeight: 600 }}>
+      <a href="#" onClick={(e) => { e.preventDefault(); onAction(); }} style={{ fontSize: rem(12), fontWeight: 600 }}>
         {actionLabel}
       </a>
     </div>

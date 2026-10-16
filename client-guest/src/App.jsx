@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useBookingFlow } from './useBookingFlow.js';
 import LandingScreen from './components/LandingScreen.jsx';
 import ServicesScreen from './components/ServicesScreen.jsx';
@@ -27,6 +28,14 @@ const SCREENS = {
 
 export default function App() {
   const flow = useBookingFlow();
+
+  // Screen readers pick a voice, and browsers decide whether to offer
+  // translation, from <html lang> — so it follows the language on screen
+  // rather than staying at index.html's "en".
+  useEffect(() => {
+    document.documentElement.lang = flow.lang;
+  }, [flow.lang]);
+
   const Screen = SCREENS[flow.step] ?? LandingScreen;
 
   // No master lives at this address (a mistyped or deleted subdomain).

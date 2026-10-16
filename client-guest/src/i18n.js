@@ -1,5 +1,10 @@
 export * from 'salon-shared/i18n';
 
+// The platform behind every master's page, credited in the page footer. Same
+// build-time values the operator app reads.
+export const PRODUCT_NAME = import.meta.env.VITE_PRODUCT_NAME || 'BeautyBook';
+export const PLATFORM_DOMAIN = import.meta.env.VITE_PLATFORM_DOMAIN || 'localhost';
+
 // The languages this master's page is in, from GET /api/site. Set once, before
 // the first render that shows the site, like the currency and timezone.
 let siteLanguages = null;
@@ -102,7 +107,10 @@ export const STRINGS = {
     telegramReminders: 'Get reminders in Telegram',
     telegramPressStart: 'Now press “Start” in Telegram',
     telegramCaption: "The evening before and 2 hours before your visit.",
-    pageClosed: 'Online booking isn\'t available right now — please get in touch directly.',
+    pageClosed: 'Online booking isn\'t available right now — please get in touch using the contacts below.',
+    pageClosedNoContacts: 'Online booking isn\'t available right now. Please check back later.',
+    madeWith: 'Made with {product}',
+    privacyLink: 'Privacy',
     pageNotFound: 'There is no booking page at this address.',
   },
   ru: {
@@ -186,7 +194,10 @@ export const STRINGS = {
     telegramReminders: 'Напоминания в Telegram',
     telegramPressStart: 'Теперь нажмите «Start» в Telegram',
     telegramCaption: 'Накануне вечером и за 2 часа до визита.',
-    pageClosed: 'Онлайн-запись сейчас недоступна — свяжитесь с мастером напрямую.',
+    pageClosed: 'Онлайн-запись сейчас недоступна — свяжитесь с мастером по контактам ниже.',
+    pageClosedNoContacts: 'Онлайн-запись сейчас недоступна. Загляните позже.',
+    madeWith: 'Сделано на {product}',
+    privacyLink: 'Конфиденциальность',
     pageNotFound: 'По этому адресу нет страницы записи.',
   },
   hy: {
@@ -270,7 +281,10 @@ export const STRINGS = {
     telegramReminders: 'Հիշեցումներ Telegram-ում',
     telegramPressStart: 'Հիմա Telegram-ում սեղմեք «Start»',
     telegramCaption: 'Նախորդ երեկոյան և այցից 2 ժամ առաջ։',
-    pageClosed: 'Առցանց գրանցումն այս պահին հասանելի չէ․ խնդրում ենք կապվել ուղղակիորեն։',
+    pageClosed: 'Առցանց գրանցումն այս պահին հասանելի չէ․ խնդրում ենք կապվել ստորև նշված կոնտակտներով։',
+    pageClosedNoContacts: 'Առցանց գրանցումն այս պահին հասանելի չէ։ Խնդրում ենք այցելել ավելի ուշ։',
+    madeWith: 'Ստեղծված է {product}-ով',
+    privacyLink: 'Գաղտնիություն',
     pageNotFound: 'Այս հասցեում գրանցման էջ չկա։',
   },
 };

@@ -7,6 +7,18 @@ export * from 'salon-shared/i18n';
 export const PRODUCT_NAME = import.meta.env.VITE_PRODUCT_NAME || 'BeautyBook';
 export const PLATFORM_DOMAIN = import.meta.env.VITE_PLATFORM_DOMAIN || 'localhost';
 
+// The platform's own subscription price, from GET /api/auth/platform (minor
+// units + ISO code). Whole amounts drop the ".00": "$10", not "$10.00".
+export function formatPlatformPrice(minor, currency, lang) {
+  const amount = minor / 100;
+  return new Intl.NumberFormat(lang, {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
 // The languages this master's page is in (masters.languages): the forms only
 // ask for names in these. Set when the account loads, before the screens render.
 let masterLanguages = ['hy', 'ru', 'en'];
@@ -166,6 +178,13 @@ export const STRINGS = {
     lunchLabel: 'Lunch break',
     invalidLunchError: 'A lunch break has to start before it ends and sit inside that day\'s working hours.',
     confirmDeleteExpense: 'Delete this expense?',
+    confirmDeleteBlock: 'Remove this block? Clients will be able to book this time again.',
+    confirmDeletePhoto: 'Remove the photo from your page?',
+    confirmRemoveBtn: 'Yes, remove',
+    confirmCancelBooking: "Cancel this visit? If the client turned on Telegram reminders, they'll get a message.",
+    confirmCancelBookingBtn: 'Yes, cancel it',
+    keepBookingBtn: 'Keep it',
+    unsavedChanges: 'Unsaved changes',
     dateBlocksSection: 'Date-specific blocks',
     openLabel: 'Open',
     closedLabel: 'Closed',
@@ -329,6 +348,13 @@ export const STRINGS = {
     lunchLabel: 'Перерыв',
     invalidLunchError: 'Перерыв должен начинаться раньше, чем заканчиваться, и попадать в рабочие часы этого дня.',
     confirmDeleteExpense: 'Удалить этот расход?',
+    confirmDeleteBlock: 'Убрать эту блокировку? Клиенты снова смогут записаться на это время.',
+    confirmDeletePhoto: 'Убрать фото со страницы?',
+    confirmRemoveBtn: 'Да, убрать',
+    confirmCancelBooking: 'Отменить этот визит? Если клиент включил напоминания в Telegram, ему придёт сообщение.',
+    confirmCancelBookingBtn: 'Да, отменить',
+    keepBookingBtn: 'Оставить',
+    unsavedChanges: 'Есть несохранённые изменения',
     dateBlocksSection: 'Блокировки на конкретные даты',
     openLabel: 'Открыто',
     closedLabel: 'Закрыто',
@@ -492,6 +518,13 @@ export const STRINGS = {
     lunchLabel: 'Ընդմիջում',
     invalidLunchError: 'Ընդմիջումը պետք է սկսվի ավարտից շուտ և տեղավորվի տվյալ օրվա աշխատանքային ժամերում։',
     confirmDeleteExpense: 'Ջնջե՞լ այս ծախսը։',
+    confirmDeleteBlock: 'Հեռացնե՞լ այս արգելափակումը։ Հաճախորդները կրկին կկարողանան գրանցվել այս ժամին։',
+    confirmDeletePhoto: 'Հեռացնե՞լ լուսանկարը էջից։',
+    confirmRemoveBtn: 'Այո, հեռացնել',
+    confirmCancelBooking: 'Չեղարկե՞լ այս այցը։ Եթե հաճախորդը միացրել է Telegram-ի հիշեցումները, նա հաղորդագրություն կստանա։',
+    confirmCancelBookingBtn: 'Այո, չեղարկել',
+    keepBookingBtn: 'Թողնել',
+    unsavedChanges: 'Կան չպահպանված փոփոխություններ',
     dateBlocksSection: 'Կոնկրետ ամսաթվերի արգելափակումներ',
     openLabel: 'Բաց',
     closedLabel: 'Փակ',

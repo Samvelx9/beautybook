@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api.js';
 import { getMasterLanguages, localName, pluralize } from '../i18n.js';
+import ConfirmInline from './ConfirmInline.jsx';
 
 const EMPTY_FORM = {
   nameEn: '',
@@ -23,6 +24,7 @@ export default function CategoriesScreen({ T, lang, onAuthError, setTab }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -106,16 +108,18 @@ export default function CategoriesScreen({ T, lang, onAuthError, setTab }) {
   }
 
   async function remove(category) {
-    if (!window.confirm(T.confirmDeleteCategory)) return;
+    setError(null);
     try {
       await api.deleteCategory(category.id);
       await load();
     } catch (err) {
       if (err instanceof ApiError && err.code === 'category_has_services') {
-        window.alert(T.categoryHasServicesError);
+        setError('categoryHasServicesError');
       } else if (!onAuthError(err)) {
         setError('genericError');
       }
+    } finally {
+      setConfirmingDeleteId(null);
     }
   }
 
@@ -183,17 +187,26 @@ export default function CategoriesScreen({ T, lang, onAuthError, setTab }) {
                   )}
                 </span>
               </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button className="btn-outline" onClick={() => startEdit(category)} disabled={editingId === category.id}>
-                  {T.editBtn}
-                </button>
-                <button className="btn-outline" onClick={() => toggleActive(category)}>
-                  {category.is_active ? T.deactivateBtn : T.activateBtn}
-                </button>
-                <button className="btn-danger-outline" onClick={() => remove(category)}>
-                  {T.deleteBtn}
-                </button>
-              </div>
+              {confirmingDeleteId === category.id ? (
+                <ConfirmInline
+                  T={T}
+                  message={T.confirmDeleteCategory}
+                  onConfirm={() => remove(category)}
+                  onCancel={() => setConfirmingDeleteId(null)}
+                />
+              ) : (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button className="btn-outline" onClick={() => startEdit(category)} disabled={editingId === category.id}>
+                    {T.editBtn}
+                  </button>
+                  <button className="btn-outline" onClick={() => toggleActive(category)}>
+                    {category.is_active ? T.deactivateBtn : T.activateBtn}
+                  </button>
+                  <button className="btn-danger-outline" onClick={() => setConfirmingDeleteId(category.id)}>
+                    {T.deleteBtn}
+                  </button>
+                </div>
+              )}
             </div>
             {editingId === category.id && (
               <CategoryForm
@@ -297,8 +310,8 @@ function FieldGroup({ label, T, form, setForm, keys: allKeys, multiline }) {
 
 function Field({ label, value, onChange, type = 'text', multiline }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <label style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</label>
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</span>
       {multiline ? (
         <textarea
           className="field-input"
@@ -310,7 +323,7 @@ function Field({ label, value, onChange, type = 'text', multiline }) {
       ) : (
         <input className="field-input" type={type} value={value} onChange={(e) => onChange(e.target.value)} />
       )}
-    </div>
+    </label>
   );
 }
 

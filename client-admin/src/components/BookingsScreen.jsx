@@ -4,6 +4,7 @@ import { formatPrice, formatDate, pluralize, WEEKDAY_SHORT, MONTH_FULL, localNam
 import { splitLocalDateTime, todayLocalStr } from 'salon-shared/time';
 import { DURATION_CHOICES, MIN_BOOKING_MINUTES, formatDuration } from 'salon-shared/booking';
 import { isDateStr, isMonthStr, routeParam, setRouteParams } from '../route.js';
+import ConfirmInline from './ConfirmInline.jsx';
 
 // Today in the master's own timezone, not the browser's.
 const todayStr = todayLocalStr;
@@ -625,6 +626,10 @@ function YearGrid({ T, lang, bookings, selectedMonth, onPickMonth }) {
 
 function BookingRow({ T, lang, booking, showDate, selected, isEditing, onToggle, onEdit, onChangeStatus }) {
   const { dateObj, time } = splitLocalDateTime(booking.start_time);
+  // Cancelling is the one status that reaches the guest (a Telegram message if
+  // they turned reminders on), and a message can't be unsent — so it alone asks
+  // first. Completed / no-show stay one pick, since they're only bookkeeping.
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   return (
     <div
       className="card"
@@ -645,31 +650,47 @@ function BookingRow({ T, lang, booking, showDate, selected, isEditing, onToggle,
           </span>
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: STATUS_COLOR[booking.status] }}>
-          {T[STATUS_KEY[booking.status]]}
-        </span>
-        <button className="btn-outline" onClick={onEdit} disabled={isEditing}>
-          {T.editBtn}
-        </button>
-        <select
-          className="field-input"
-          style={{ width: 150 }}
-          value=""
-          onChange={(e) => {
-            if (e.target.value) onChangeStatus(e.target.value);
+      {confirmingCancel ? (
+        <ConfirmInline
+          T={T}
+          message={T.confirmCancelBooking}
+          confirmLabel={T.confirmCancelBookingBtn}
+          cancelLabel={T.keepBookingBtn}
+          onConfirm={() => {
+            setConfirmingCancel(false);
+            onChangeStatus('cancelled');
           }}
-        >
-          <option value="">{T.markAs}</option>
-          {Object.entries(STATUS_KEY)
-            .filter(([value]) => value !== booking.status)
-            .map(([value, key]) => (
-              <option key={value} value={value}>
-                {T[key]}
-              </option>
-            ))}
-        </select>
-      </div>
+          onCancel={() => setConfirmingCancel(false)}
+        />
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: STATUS_COLOR[booking.status] }}>
+            {T[STATUS_KEY[booking.status]]}
+          </span>
+          <button className="btn-outline" onClick={onEdit} disabled={isEditing}>
+            {T.editBtn}
+          </button>
+          <select
+            className="field-input"
+            style={{ width: 150 }}
+            value=""
+            onChange={(e) => {
+              const status = e.target.value;
+              if (status === 'cancelled') setConfirmingCancel(true);
+              else if (status) onChangeStatus(status);
+            }}
+          >
+            <option value="">{T.markAs}</option>
+            {Object.entries(STATUS_KEY)
+              .filter(([value]) => value !== booking.status)
+              .map(([value, key]) => (
+                <option key={value} value={value}>
+                  {T[key]}
+                </option>
+              ))}
+          </select>
+        </div>
+      )}
     </div>
   );
 }
@@ -725,7 +746,7 @@ function BookingForm({ T, lang, title, form, setForm, services, categories, savi
       <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', maxWidth: 680 }}>{T.manualBookingHint}</p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <label style={{ fontSize: 12, color: 'var(--muted)' }}>{T.bookingServiceLabel}</label>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{T.bookingServiceLabel}</span>
         {form.items.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {form.items.map((item) => {
@@ -777,7 +798,12 @@ function BookingForm({ T, lang, title, form, setForm, services, categories, savi
             })}
           </div>
         )}
-        <select className="field-input" value="" onChange={(e) => addService(e.target.value)}>
+        <select
+          className="field-input"
+          value=""
+          onChange={(e) => addService(e.target.value)}
+          aria-label={T.bookingServiceLabel}
+        >
           <option value="">{T.addZone}</option>
           {categories.map((c) => {
             const rows = services.filter((s) => s.category_id === c.id && !chosenIds.includes(String(s.id)));
@@ -817,8 +843,8 @@ function BookingForm({ T, lang, title, form, setForm, services, categories, savi
           value={form.customerPhone}
           onChange={(v) => setForm({ ...form, customerPhone: v })}
         />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <label style={{ fontSize: 12, color: 'var(--muted)' }}>{T.bookingStatusLabel}</label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{T.bookingStatusLabel}</span>
           <select
             className="field-input"
             value={form.status}
@@ -830,7 +856,7 @@ function BookingForm({ T, lang, title, form, setForm, services, categories, savi
               </option>
             ))}
           </select>
-        </div>
+        </label>
       </div>
       <div style={{ display: 'flex', gap: 10 }}>
         <button className="btn-primary" onClick={onSave} disabled={saving}>
@@ -846,9 +872,9 @@ function BookingForm({ T, lang, title, form, setForm, services, categories, savi
 
 function Field({ label, value, onChange, type = 'text' }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <label style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</label>
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</span>
       <input className="field-input" type={type} value={value} onChange={(e) => onChange(e.target.value)} />
-    </div>
+    </label>
   );
 }

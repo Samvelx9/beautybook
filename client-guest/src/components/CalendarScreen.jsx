@@ -9,6 +9,7 @@ import {
   MAX_BOOKING_MINUTES,
   formatDuration,
 } from 'salon-shared/booking';
+import { rem } from '../lib/rem.js';
 
 // A stepper rather than a row of twelve pills: half-hour steps up to six hours
 // is too many choices to lay out at phone width.
@@ -22,7 +23,7 @@ function StepButton({ label, disabled, onClick }) {
         width: 42,
         height: 42,
         borderRadius: '50%',
-        fontSize: 19,
+        fontSize: rem(19),
         lineHeight: 1,
         border: '1px solid var(--line)',
         background: disabled ? 'var(--bg)' : 'var(--white)',
@@ -80,10 +81,10 @@ export default function CalendarScreen(f) {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10, gap: 10 }}>
-              <span style={{ fontSize: 13, fontWeight: 600 }}>
+              <span style={{ fontSize: rem(13), fontWeight: 600 }}>
                 {hourlyZones.length > 1 ? localName(service, lang) : T.howLong}
               </span>
-              <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--terracotta)' }}>
+              <span style={{ fontSize: rem(13.5), fontWeight: 700, color: 'var(--terracotta)' }}>
                 {formatPrice(price, lang)}
               </span>
             </div>
@@ -93,7 +94,7 @@ export default function CalendarScreen(f) {
                 disabled={minutes <= MIN_BOOKING_MINUTES}
                 onClick={() => f.stepMinutes(service.id, -STEP_MINUTES)}
               />
-              <span style={{ flex: 1, textAlign: 'center', fontSize: 15, fontWeight: 600 }}>
+              <span style={{ flex: 1, textAlign: 'center', fontSize: rem(15), fontWeight: 600 }}>
                 {formatDuration(minutes, T.hourUnit, T.minUnit)}
               </span>
               <StepButton
@@ -118,10 +119,11 @@ export default function CalendarScreen(f) {
       />
 
       {f.selectedSlot && (
-        <div style={{ padding: '14px 24px 20px', borderTop: '1px solid var(--line)', background: 'var(--surface)' }}>
+        <div className="bottom-bar" style={{ padding: '14px 24px 20px' }}>
           <button
+            className="tap-wide"
             onClick={f.continueToDetails}
-            style={{ width: '100%', padding: 16, borderRadius: 999, background: 'var(--sage)', color: 'var(--white)', fontSize: 15, fontWeight: 600 }}
+            style={{ width: '100%', padding: 16, borderRadius: 999, background: 'var(--sage)', color: 'var(--white)', fontSize: rem(15), fontWeight: 600 }}
           >
             {T.continueBtn}
           </button>

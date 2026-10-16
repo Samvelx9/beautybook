@@ -52,6 +52,7 @@ export const api = {
   signup: (payload) => request('/auth/signup', json('POST', payload)),
   checkSlug: (slug) => request(`/auth/slug${query({ slug })}`),
   getTemplates: () => request('/auth/templates'),
+  getPlatformInfo: () => request('/auth/platform'),
 
   // The master's account, settings and integrations.
   getAccount: () => request('/admin/account'),
@@ -119,6 +120,8 @@ export const api = {
   // The platform operator's screen.
   getPlatformMasters: () => request('/platform/masters'),
   getPlatformMaster: (id) => request(`/platform/masters/${id}`),
+  getPlatformSettings: () => request('/platform/settings'),
+  updatePlatformSettings: (payload) => request('/platform/settings', json('PATCH', payload)),
   changeOperatorPassword: (currentPassword, newPassword) =>
     request('/platform/password', json('POST', { currentPassword, newPassword })),
   updatePlatformMaster: (id, payload) => request(`/platform/masters/${id}`, json('PATCH', payload)),

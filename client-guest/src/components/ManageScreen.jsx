@@ -2,6 +2,7 @@ import Header from './Header.jsx';
 import ZoneList from './ZoneList.jsx';
 import { formatDateAt, formatPrice } from '../i18n.js';
 import { splitLocalDateTime } from '../lib/time.js';
+import { rem } from '../lib/rem.js';
 
 export default function ManageScreen(f) {
   const { T, lang, activeBooking } = f;
@@ -21,44 +22,45 @@ export default function ManageScreen(f) {
       <div className="scrollarea" style={{ flex: 1, overflowY: 'auto', padding: '6px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 16, padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 13, color: 'var(--muted)' }}>{T.summaryService}</span>
+            <span style={{ fontSize: rem(13), color: 'var(--muted)' }}>{T.summaryService}</span>
             <ZoneList items={activeBooking.items} lang={lang} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 13, color: 'var(--muted)' }}>{T.summaryWhen}</span>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>{dateTimeSummary}</span>
+            <span style={{ fontSize: rem(13), color: 'var(--muted)' }}>{T.summaryWhen}</span>
+            <span style={{ fontSize: rem(13), fontWeight: 600 }}>{dateTimeSummary}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 13, color: 'var(--muted)' }}>{T.summaryName}</span>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>{activeBooking.customerName}</span>
+            <span style={{ fontSize: rem(13), color: 'var(--muted)' }}>{T.summaryName}</span>
+            <span style={{ fontSize: rem(13), fontWeight: 600 }}>{activeBooking.customerName}</span>
           </div>
           <div style={{ height: 1, background: 'var(--line)', margin: '2px 0' }} />
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 13, color: 'var(--muted)' }}>{T.summaryPrice}</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--terracotta)' }}>{formatPrice(activeBooking.priceAtBooking, lang)}</span>
+            <span style={{ fontSize: rem(13), color: 'var(--muted)' }}>{T.summaryPrice}</span>
+            <span style={{ fontSize: rem(14), fontWeight: 700, color: 'var(--terracotta)' }}>{formatPrice(activeBooking.priceAtBooking, lang)}</span>
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: 10 }}>
           <button
             onClick={f.goRescheduleFromManage}
-            style={{ flex: 1, padding: 14, borderRadius: 999, border: '1.5px solid var(--sage)', background: 'none', color: 'var(--sage)', fontSize: 14, fontWeight: 600 }}
+            style={{ flex: 1, padding: 14, borderRadius: 999, border: '1.5px solid var(--sage)', background: 'none', color: 'var(--sage)', fontSize: rem(14), fontWeight: 600 }}
           >
             {T.reschedule}
           </button>
           <button
             onClick={f.goCancelFromManage}
-            style={{ flex: 1, padding: 14, borderRadius: 999, border: '1.5px solid var(--terracotta)', background: 'none', color: 'var(--terracotta)', fontSize: 14, fontWeight: 600 }}
+            style={{ flex: 1, padding: 14, borderRadius: 999, border: '1.5px solid var(--terracotta)', background: 'none', color: 'var(--terracotta)', fontSize: rem(14), fontWeight: 600 }}
           >
             {T.cancelBooking}
           </button>
         </div>
       </div>
 
-      <div style={{ padding: '14px 24px 20px', borderTop: '1px solid var(--line)', background: 'var(--surface)' }}>
+      <div className="bottom-bar" style={{ padding: '14px 24px 20px' }}>
         <button
+          className="tap-wide"
           onClick={f.bookAnother}
-          style={{ width: '100%', padding: 16, borderRadius: 999, background: 'var(--sage)', color: 'var(--white)', fontSize: 15, fontWeight: 600 }}
+          style={{ width: '100%', padding: 16, borderRadius: 999, background: 'var(--sage)', color: 'var(--white)', fontSize: rem(15), fontWeight: 600 }}
         >
           {T.done}
         </button>

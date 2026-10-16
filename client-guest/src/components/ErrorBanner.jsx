@@ -1,3 +1,5 @@
+import { rem } from '../lib/rem.js';
+
 export default function ErrorBanner({ text }) {
   if (!text) return null;
   return (
@@ -8,7 +10,7 @@ export default function ErrorBanner({ text }) {
         borderRadius: 12,
         background: 'var(--terracotta-light)',
         color: 'var(--terracotta)',
-        fontSize: 12.5,
+        fontSize: rem(12.5),
         fontWeight: 500,
       }}
     >
