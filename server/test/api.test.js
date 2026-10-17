@@ -933,6 +933,15 @@ test("the owner sees and manages every master's bookings", async () => {
   });
   assert.equal(clash.body.error, 'slot_taken');
 
+  // Each master's notice and window are set on their own calendar.
+  const window = await call('PATCH', `/salon/masters/${salon.lilit.id}/availability/settings`, {
+    token: salon.owner,
+    body: { bookingWindowDays: 30 },
+  });
+  assert.deepEqual(window.body, { minNoticeMinutes: 90, bookingWindowDays: 30 });
+  assert.equal((await call('GET', '/site', { slug: 'rose-lilit' })).body.bookingWindowDays, 30);
+  assert.equal((await call('GET', '/site', { slug: 'rose-owner' })).body.bookingWindowDays, 7);
+
   // A master can't hand their visit on; nor reach another master's calendar.
   const byMaster = await call('PATCH', `/admin/bookings/${made.body.id}`, {
     token: salon.lilit.token,
@@ -969,17 +978,64 @@ test("the owner's financials cover the salon; a master's only their own visits",
     body: { category: 'Rent', amount: 50000, date },
   });
 
+  // The salon's default split: 40% to the master, 60% to the salon.
   const owner = (await call('GET', `/admin/financials?from=${date}&to=${date}`, { token: salon.owner })).body;
   assert.equal(owner.income.total, 18000);
+  assert.equal(owner.income.ownerShare, 10800);
   assert.equal(owner.expenses.total, 50000);
+  assert.equal(owner.net, 10800 - 50000);
   assert.equal(owner.income.byMaster.length, 2);
+  const ninaRow = owner.income.byMaster.find((r) => r.master_id === salon.nina.id);
+  assert.deepEqual([ninaRow.total, ninaRow.ownerShare], [8000, 4800]);
   const onlyNina = (await call('GET', `/admin/financials?from=${date}&to=${date}&masterId=${salon.nina.id}`, { token: salon.owner })).body;
   assert.equal(onlyNina.income.total, 8000);
 
+  // A master sees their own share and nothing else.
   const nina = (await call('GET', `/admin/financials?from=${date}&to=${date}`, { token: salon.nina.token })).body;
-  assert.equal(nina.income.total, 8000);
+  assert.equal(nina.income.total, 3200);
+  assert.equal(nina.income.ownerShare, undefined);
+  assert.equal(nina.income.byService[0].total, 3200);
   assert.equal(nina.expenses.total, 0);
   assert.deepEqual(nina.income.byMaster, []);
+});
+
+test('the income split: salon-wide, per master, fixed once a visit is completed', async () => {
+  // A new split applies to visits completed from now on, not to those before.
+  const changed = await call('PATCH', '/salon', { token: salon.owner, body: { masterSharePercent: 50 } });
+  assert.equal(changed.body.organization.masterSharePercent, 50);
+  const before = (await call('GET', `/admin/financials?from=${date}&to=${date}`, { token: salon.nina.token })).body;
+  assert.equal(before.income.total, 3200);
+
+  // Lilit is paid more than the salon's split.
+  const lilit = await call('PATCH', `/salon/masters/${salon.lilit.id}`, { token: salon.owner, body: { sharePercent: 70 } });
+  assert.deepEqual([lilit.body.sharePercent, lilit.body.effectiveSharePercent], [70, 70]);
+  const visit = await call('POST', `/salon/masters/${salon.lilit.id}/bookings`, {
+    token: salon.owner,
+    body: { date, time: '17:00', customerName: 'Split', customerPhone: '+37491000009', status: 'completed', items: [{ serviceId: salon.manicure }] },
+  });
+  assert.equal(visit.status, 201, JSON.stringify(visit.body));
+  const lilitFin = (await call('GET', `/admin/financials?from=${date}&to=${date}`, { token: salon.lilit.token })).body;
+  assert.equal(lilitFin.income.total, 4000 + 5600); // the pedicure at 40%, the new manicure at 70%
+
+  // Handed to Nina, a completed visit is paid at Nina's share.
+  await call('PATCH', `/salon/masters/${salon.lilit.id}/bookings/${visit.body.id}`, {
+    token: salon.owner,
+    body: { masterId: salon.nina.id },
+  });
+  const ninaFin = (await call('GET', `/admin/financials?from=${date}&to=${date}`, { token: salon.nina.token })).body;
+  assert.equal(ninaFin.income.total, 3200 + 4000);
+
+  // Back to the salon's split, and the owner's own visits are all theirs.
+  const reset = await call('PATCH', `/salon/masters/${salon.lilit.id}`, { token: salon.owner, body: { sharePercent: null } });
+  assert.deepEqual([reset.body.sharePercent, reset.body.effectiveSharePercent], [null, 50]);
+  const own = await call('PATCH', `/salon/masters/${salon.ownerMasterId}`, { token: salon.owner, body: { sharePercent: 30 } });
+  assert.equal(own.body.error, 'owner_keeps_all');
+  const ownRow = (await call('GET', '/salon', { token: salon.owner })).body.masters.find((m) => m.isOwner);
+  assert.equal(ownRow.effectiveSharePercent, 0);
+  assert.equal(
+    (await call('PATCH', '/salon', { token: salon.owner, body: { masterSharePercent: 120 } })).body.error,
+    'invalid_share'
+  );
 });
 
 test('a deactivated master can no longer sign in or be booked', async () => {
@@ -988,8 +1044,9 @@ test('a deactivated master can no longer sign in or be booked', async () => {
   assert.equal((await call('GET', '/admin/account', { token: salon.nina.token })).body.error, 'master_deactivated');
   assert.equal((await call('GET', '/site', { slug: 'rose-nina' })).body.open, false);
   assert.equal((await call('GET', '/salon', { token: salon.owner })).body.activeMasters, 2);
-  // Their history stays, and the owner can still look after it.
-  assert.equal((await call('GET', `/salon/masters/${salon.nina.id}/bookings`, { token: salon.owner })).body.length, 1);
+  // Their history stays (the visit before, and the one handed to them in the
+  // split test), and the owner can still look after it.
+  assert.equal((await call('GET', `/salon/masters/${salon.nina.id}/bookings`, { token: salon.owner })).body.length, 2);
 
   // A new service no longer goes to them.
   const cats = (await call('GET', '/admin/categories', { token: salon.owner })).body;

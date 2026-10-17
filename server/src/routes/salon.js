@@ -39,6 +39,12 @@ const UNIQUE_VIOLATION = '23505';
 const LANGS = ['hy', 'ru', 'en'];
 const BOOKING_STATUSES = ['confirmed', 'completed', 'cancelled', 'no_show'];
 
+// A share in whole percent, 0–100, or null.
+function readShare(raw) {
+  const share = Number(raw);
+  return raw !== null && raw !== '' && Number.isInteger(share) && share >= 0 && share <= 100 ? share : null;
+}
+
 const masterIdParam = (req) => {
   const id = Number(req.params.masterId);
   return Number.isInteger(id) ? id : null;
@@ -50,6 +56,7 @@ async function salonBody(organizationId) {
   const organization = await getOrganizationById(organizationId);
   const { rows: masters } = await pool.query(
     `SELECT m.id, m.slug, m.custom_domain, m.deactivated_at, m.telegram_chat_id, m.created_at,
+            m.share_percent, current_master_share(m.id) AS effective_share,
             p.owner_name_en, p.owner_name_ru, p.owner_name_hy,
             u.email, u.role,
             COALESCE(
@@ -73,6 +80,8 @@ async function salonBody(organizationId) {
       languages: organization.languages,
       defaultLang: organization.default_lang,
       notifyLang: organization.notify_lang,
+      // The masters' share of each visit's income, in percent.
+      masterSharePercent: organization.master_share_percent,
       telegramConnected: Boolean(organization.telegram_chat_id),
       createdAt: organization.created_at,
     },
@@ -91,6 +100,10 @@ async function salonBody(organizationId) {
       active: !m.deactivated_at,
       telegramConnected: Boolean(m.telegram_chat_id),
       serviceIds: m.service_ids,
+      // Their own share when it differs from the salon's (null: the salon's),
+      // and the share their visits are paid at now — 0 for the owner.
+      sharePercent: m.share_percent,
+      effectiveSharePercent: m.effective_share,
       createdAt: m.created_at,
     })),
   };
@@ -100,9 +113,10 @@ salonRouter.get('/', asyncHandler(async (req, res) => {
   res.json(await salonBody(req.organization.id));
 }));
 
-// { name, timezone, currency, languages, defaultLang, notifyLang } — the
-// locale is copied onto every master; notifyLang is the language of the
-// owner's own Telegram chat.
+// { name, timezone, currency, languages, defaultLang, notifyLang,
+//   masterSharePercent } — the locale is copied onto every master; notifyLang
+// is the language of the owner's own Telegram chat; masterSharePercent is the
+// masters' share of each visit's income from now on.
 salonRouter.patch('/', asyncHandler(async (req, res) => {
   const locale = {};
   const fields = [];
@@ -120,6 +134,11 @@ salonRouter.patch('/', asyncHandler(async (req, res) => {
   if (req.body?.notifyLang !== undefined) {
     if (!LANGS.includes(req.body.notifyLang)) return res.status(400).json({ error: 'invalid_lang' });
     set('notify_lang', req.body.notifyLang);
+  }
+  if (req.body?.masterSharePercent !== undefined) {
+    const share = readShare(req.body.masterSharePercent);
+    if (share === null) return res.status(400).json({ error: 'invalid_share' });
+    set('master_share_percent', share);
   }
   if (req.body?.timezone !== undefined) {
     if (!isValidTimeZone(req.body.timezone)) return res.status(400).json({ error: 'invalid_timezone' });
@@ -244,14 +263,24 @@ async function salonMaster(req, res) {
 // but can't sign in and their page takes no bookings; they stop counting
 // toward the plan.
 // { serviceIds: [...] } — the services they perform, replacing the list.
+// { sharePercent: n | null } — their own share of their visits' income, or
+// null to follow the salon's. Not for the owner's own calendar: the owner's
+// visits are all theirs.
 salonRouter.patch('/masters/:masterId', asyncHandler(async (req, res) => {
   const master = await salonMaster(req, res);
   if (!master) return;
 
   const active = req.body?.active;
   const rawServiceIds = req.body?.serviceIds;
-  if (active === undefined && rawServiceIds === undefined) {
+  const rawShare = req.body?.sharePercent;
+  if (active === undefined && rawServiceIds === undefined && rawShare === undefined) {
     return res.status(400).json({ error: 'no_fields_to_update' });
+  }
+  let share;
+  if (rawShare !== undefined) {
+    if (master.id === req.user.master_id) return res.status(400).json({ error: 'owner_keeps_all' });
+    share = rawShare === null ? null : readShare(rawShare);
+    if (rawShare !== null && share === null) return res.status(400).json({ error: 'invalid_share' });
   }
   let serviceIds = null;
   if (rawServiceIds !== undefined) {
@@ -273,6 +302,9 @@ salonRouter.patch('/masters/:masterId', asyncHandler(async (req, res) => {
           WHERE id = $1`,
         [master.id, Boolean(active)]
       );
+    }
+    if (rawShare !== undefined) {
+      await client.query('UPDATE masters SET share_percent = $2 WHERE id = $1', [master.id, share]);
     }
     if (serviceIds) {
       await client.query('DELETE FROM master_services WHERE master_id = $1', [master.id]);

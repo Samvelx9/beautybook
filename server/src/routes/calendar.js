@@ -19,6 +19,7 @@ import {
 } from '../services/profile.js';
 import { notifyGuest } from '../services/guestNotifications.js';
 import { getMasterById } from '../services/masters.js';
+import { BOOKING_WINDOW_CHOICES, MIN_NOTICE_CHOICES } from '../services/availability.js';
 
 // One master's calendar: their landing page, working hours, days off and
 // bookings. Mounted twice — at /api/admin for a login's own calendar, and at
@@ -264,6 +265,43 @@ calendarRouter.delete('/availability/blocks/:id', asyncHandler(async (req, res) 
   );
   if (rowCount === 0) return res.status(404).json({ error: 'block_not_found' });
   res.status(204).end();
+}));
+
+// How far ahead guests must book at the least, and may book at the most —
+// the calendar's own, so a salon's owner sets them for each master too.
+calendarRouter.get('/availability/settings', (req, res) => {
+  res.json({
+    minNoticeMinutes: req.master.min_notice_minutes,
+    bookingWindowDays: req.master.booking_window_days,
+  });
+});
+
+calendarRouter.patch('/availability/settings', asyncHandler(async (req, res) => {
+  const fields = [];
+  const values = [];
+  const set = (column, value) => {
+    values.push(value);
+    fields.push(`${column} = $${values.length}`);
+  };
+  if (req.body?.minNoticeMinutes !== undefined) {
+    const minutes = Number(req.body.minNoticeMinutes);
+    if (!MIN_NOTICE_CHOICES.includes(minutes)) return res.status(400).json({ error: 'invalid_min_notice' });
+    set('min_notice_minutes', minutes);
+  }
+  if (req.body?.bookingWindowDays !== undefined) {
+    const days = Number(req.body.bookingWindowDays);
+    if (!BOOKING_WINDOW_CHOICES.includes(days)) return res.status(400).json({ error: 'invalid_booking_window' });
+    set('booking_window_days', days);
+  }
+  if (fields.length === 0) return res.status(400).json({ error: 'no_fields_to_update' });
+
+  values.push(req.master.id);
+  const { rows } = await pool.query(
+    `UPDATE masters SET ${fields.join(', ')} WHERE id = $${values.length}
+     RETURNING min_notice_minutes, booking_window_days`,
+    values
+  );
+  res.json({ minNoticeMinutes: rows[0].min_notice_minutes, bookingWindowDays: rows[0].booking_window_days });
 }));
 
 // ---------------------------------------------------------------------------

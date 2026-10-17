@@ -128,7 +128,7 @@ export function newConnectToken(prefix = 'm') {
 
 export const ORGANIZATION_COLUMNS = `o.id, o.kind, o.name, o.timezone, o.currency, o.languages,
   o.default_lang, o.notify_lang, o.telegram_chat_id, o.trial_ends_at, o.subscription_status,
-  o.period_ends_at, o.customer_portal_url, o.suspended_at, o.created_at`;
+  o.period_ends_at, o.customer_portal_url, o.suspended_at, o.master_share_percent, o.created_at`;
 
 export async function getOrganizationById(id, db = pool) {
   const { rows } = await db.query(

@@ -10,14 +10,16 @@ const TAB_LABEL_KEY = {
   profile: 'navProfile',
   settings: 'navSettings',
   platform: 'navPlatform',
+  masters: 'navMasters',
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 // One line above every screen about the account's standing, when there's
 // something to say: days left of the trial, or why the page has stopped
-// taking bookings. Its button opens Settings, where the subscription lives.
-function AccessBanner({ T, access, onOpen }) {
+// taking bookings. Its button opens Settings, where the subscription lives —
+// for the owner; a salon's master is told the salon's owner handles it.
+function AccessBanner({ T, access, isOwner, onOpen }) {
   if (!access) return null;
   let text = null;
   let urgent = false;
@@ -36,6 +38,12 @@ function AccessBanner({ T, access, onOpen }) {
     urgent = true;
   }
   if (!text) return null;
+  // A salon's master needn't count the trial down; a closed page they do need
+  // to hear about, and who can reopen it.
+  if (!isOwner) {
+    if (access.state === 'trial') return null;
+    text = `${text} ${T.bannerAskOwner}`;
+  }
 
   return (
     <div style={{ background: urgent ? 'var(--terracotta-light)' : 'var(--sage-light)', borderBottom: '1px solid var(--line)' }}>
@@ -44,7 +52,7 @@ function AccessBanner({ T, access, onOpen }) {
         style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}
       >
         <span style={{ fontSize: 13.5 }}>{text}</span>
-        {access.state !== 'suspended' && (
+        {isOwner && access.state !== 'suspended' && (
           <button className="btn-primary" style={{ padding: '7px 14px', fontSize: 13 }} onClick={onOpen}>
             {T.subscribeBtn}
           </button>
@@ -56,6 +64,7 @@ function AccessBanner({ T, access, onOpen }) {
 
 export default function AdminLayout({ T, lang, setLang, tabs, tab, setTab, onLogout, account, children }) {
   const siteUrl = account?.master?.siteUrl;
+  const salonName = account?.organization?.kind === 'salon' ? account.organization.name : null;
   return (
     <div className="admin-shell">
       <div style={{ borderBottom: '1px solid var(--line)', background: 'var(--white)' }}>
@@ -65,7 +74,7 @@ export default function AdminLayout({ T, lang, setLang, tabs, tab, setTab, onLog
         >
           <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <h2 style={{ fontSize: 18, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {PRODUCT_NAME}
+              {salonName || PRODUCT_NAME}
             </h2>
             {siteUrl && (
               <a
@@ -87,7 +96,12 @@ export default function AdminLayout({ T, lang, setLang, tabs, tab, setTab, onLog
         </div>
       </div>
 
-      <AccessBanner T={T} access={account?.access} onOpen={() => setTab('settings')} />
+      <AccessBanner
+        T={T}
+        access={account?.access}
+        isOwner={account?.role === 'owner'}
+        onOpen={() => setTab('settings')}
+      />
 
       {/* The tabs stay in reach on long screens (dashboard, home page) instead
           of scrolling away; content passes underneath the frosted bar. */}

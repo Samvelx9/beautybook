@@ -37,6 +37,18 @@ async function request(path, options = {}) {
 
 const json = (method, body) => ({ method, body: JSON.stringify(body) });
 
+// Whose calendar the calendar calls below (landing page, hours, days off,
+// bookings) act on. null: the login's own, at /api/admin. A salon's owner picks
+// one of the salon's masters by id — /api/salon/masters/:id, the same routes —
+// or 'all' for the bookings list across every master. Set synchronously by
+// App before the screens render, like the auth token.
+let calendar = null;
+export function setCalendar(masterId) {
+  calendar = masterId;
+}
+const cal = (path, masterId = calendar) =>
+  typeof masterId === 'number' ? `/salon/masters/${masterId}${path}` : `/admin${path}`;
+
 function query(params) {
   const qs = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -65,18 +77,18 @@ export const api = {
   startCheckout: () => request('/admin/billing/checkout', { method: 'POST' }),
   applyTemplate: (key) => request(`/admin/templates/${encodeURIComponent(key)}`, { method: 'POST' }),
 
-  getProfile: () => request('/admin/profile'),
-  updateProfile: (payload) => request('/admin/profile', json('PUT', payload)),
+  getProfile: () => request(cal('/profile')),
+  updateProfile: (payload) => request(cal('/profile'), json('PUT', payload)),
 
   // The photo goes up as a raw body typed by the file itself — not JSON and
   // not multipart (the endpoint takes one file and nothing else).
   uploadPhoto: (file) =>
-    request('/admin/profile/photo', {
+    request(cal('/profile/photo'), {
       method: 'PUT',
       headers: { 'Content-Type': file.type },
       body: file,
     }),
-  deletePhoto: () => request('/admin/profile/photo', { method: 'DELETE' }),
+  deletePhoto: () => request(cal('/profile/photo'), { method: 'DELETE' }),
   // The photo is served by the master's own page (the guest API works out the
   // master from the host), so the URL is on that page's address.
   photoUrl: (siteUrl, version) => `${siteUrl}/api/profile/photo?v=${version}`,
@@ -91,23 +103,33 @@ export const api = {
   updateService: (id, payload) => request(`/admin/services/${id}`, json('PATCH', payload)),
   deleteService: (id) => request(`/admin/services/${id}`, { method: 'DELETE' }),
 
-  getWeeklyHours: () => request('/admin/availability/weekly'),
+  getWeeklyHours: () => request(cal('/availability/weekly')),
   // The whole week saved at once, transactionally — see the Availability screen.
-  updateWeeklyHoursAll: (days) => request('/admin/availability/weekly', json('PUT', { days })),
+  updateWeeklyHoursAll: (days) => request(cal('/availability/weekly'), json('PUT', { days })),
   updateWeeklyHours: (dayOfWeek, payload) =>
-    request(`/admin/availability/weekly/${dayOfWeek}`, json('PUT', payload)),
-  getBlocks: (from, to) => request(`/admin/availability/blocks${query({ from, to })}`),
-  createBlock: (payload) => request('/admin/availability/blocks', json('POST', payload)),
-  deleteBlock: (id) => request(`/admin/availability/blocks/${id}`, { method: 'DELETE' }),
+    request(cal(`/availability/weekly/${dayOfWeek}`), json('PUT', payload)),
+  getBlocks: (from, to) => request(cal(`/availability/blocks${query({ from, to })}`)),
+  createBlock: (payload) => request(cal('/availability/blocks'), json('POST', payload)),
+  deleteBlock: (id) => request(cal(`/availability/blocks/${id}`), { method: 'DELETE' }),
+  // Minimum notice and booking window: the calendar's own.
+  getBookingRules: () => request(cal('/availability/settings')),
+  updateBookingRules: (payload) => request(cal('/availability/settings'), json('PATCH', payload)),
 
-  getBookings: ({ from, to, status } = {}) => request(`/admin/bookings${query({ from, to, status })}`),
-  // A booking the master enters themselves — no cutoff or opening-hours check.
-  createBooking: (payload) => request('/admin/bookings', json('POST', payload)),
-  // Any field of an existing booking — zones, time, client, status.
-  updateBooking: (id, payload) => request(`/admin/bookings/${id}`, json('PATCH', payload)),
-  updateBookingStatus: (id, status) => request(`/admin/bookings/${id}/status`, json('PATCH', { status })),
+  // With the calendar set to 'all', every master's bookings, each with its
+  // `master_id`. The calls that change one booking take that master's id then.
+  getBookings: ({ from, to, status } = {}) =>
+    calendar === 'all'
+      ? request(`/salon/bookings${query({ from, to, status })}`)
+      : request(cal(`/bookings${query({ from, to, status })}`)),
+  // A booking entered in the admin panel — no cutoff or opening-hours check.
+  createBooking: (payload, masterId) => request(cal('/bookings', masterId), json('POST', payload)),
+  // Any field of an existing booking — zones, time, client, status, and for a
+  // salon's owner the master (`masterId`).
+  updateBooking: (id, payload, masterId) => request(cal(`/bookings/${id}`, masterId), json('PATCH', payload)),
+  updateBookingStatus: (id, status, masterId) =>
+    request(cal(`/bookings/${id}/status`, masterId), json('PATCH', { status })),
   // Cancelled bookings only — the endpoint refuses anything else.
-  deleteBookings: (ids) => request('/admin/bookings', json('DELETE', { ids })),
+  deleteBookings: (ids, masterId) => request(cal('/bookings', masterId), json('DELETE', { ids })),
 
   getExpenses: ({ from, to, category } = {}) => request(`/admin/expenses${query({ from, to, category })}`),
   getExpenseCategories: () => request('/admin/expenses/categories'),
@@ -115,7 +137,19 @@ export const api = {
   updateExpense: (id, payload) => request(`/admin/expenses/${id}`, json('PATCH', payload)),
   deleteExpense: (id) => request(`/admin/expenses/${id}`, { method: 'DELETE' }),
 
-  getFinancials: ({ from, to } = {}) => request(`/admin/financials${query({ from, to })}`),
+  getFinancials: ({ from, to, masterId } = {}) => request(`/admin/financials${query({ from, to, masterId })}`),
+
+  // A salon's owner: the salon and its masters.
+  getSalon: () => request('/salon'),
+  updateSalon: (payload) => request('/salon', json('PATCH', payload)),
+  // { slug, displayName, email } → { master, email, password }, or
+  // { self: true, slug, displayName } for the owner's own calendar.
+  addMaster: (payload) => request('/salon/masters', json('POST', payload)),
+  // { active } and/or { serviceIds }.
+  updateMaster: (id, payload) => request(`/salon/masters/${id}`, json('PATCH', payload)),
+  resetMasterLogin: (id) => request(`/salon/masters/${id}/reset-password`, { method: 'POST' }),
+  connectSalonTelegram: () => request('/salon/telegram/connect', { method: 'POST' }),
+  disconnectSalonTelegram: () => request('/salon/telegram', { method: 'DELETE' }),
 
   // The platform operator's screen.
   getPlatformMasters: () => request('/platform/masters'),

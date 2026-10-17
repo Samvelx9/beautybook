@@ -13,7 +13,7 @@ function addDays(dateStr, days) {
   return dt.toISOString().slice(0, 10);
 }
 
-export default function AvailabilityScreen({ T, lang, onAuthError, account, refreshAccount }) {
+export default function AvailabilityScreen({ T, lang, onAuthError }) {
   const [hours, setHours] = useState([]);
   const [blocks, setBlocks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -150,7 +150,7 @@ export default function AvailabilityScreen({ T, lang, onAuthError, account, refr
       <h2 style={{ fontSize: 22, fontWeight: 500 }}>{T.availabilityTitle}</h2>
       {error && <p style={{ margin: 0, fontSize: 13, color: 'var(--terracotta)' }}>{T[error]}</p>}
 
-      <NoticeSection T={T} lang={lang} account={account} refreshAccount={refreshAccount} onAuthError={onAuthError} />
+      <NoticeSection T={T} lang={lang} onAuthError={onAuthError} />
 
       <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -368,18 +368,25 @@ const NOTICE_CHOICES = [0, 15, 30, 45, 60, 90, 120, 180, 240, 360, 720, 1440, 28
 const WINDOW_CHOICES = [7, 14, 21, 30, 60, 90];
 
 // When guests may book: how far ahead at the least, and how far into the
-// future at the most. Each saves as soon as it's picked.
-function NoticeSection({ T, lang, account, refreshAccount, onAuthError }) {
-  const { minNoticeMinutes, bookingWindowDays } = account.master;
+// future at the most — this calendar's own, so a salon's owner sets them per
+// master. Each saves as soon as it's picked.
+function NoticeSection({ T, lang, onAuthError }) {
+  const [rules, setRules] = useState(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null); // 'settingsSaved' | 'genericError'
+
+  useEffect(() => {
+    api.getBookingRules().then(setRules).catch((err) => {
+      if (!onAuthError(err)) setMessage('genericError');
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function choose(fields) {
     setSaving(true);
     setMessage(null);
     try {
-      await api.updateSettings(fields);
-      await refreshAccount();
+      setRules(await api.updateBookingRules(fields));
       setMessage('settingsSaved');
     } catch (err) {
       if (!onAuthError(err)) setMessage('genericError');
@@ -387,6 +394,9 @@ function NoticeSection({ T, lang, account, refreshAccount, onAuthError }) {
       setSaving(false);
     }
   }
+
+  if (!rules) return null;
+  const { minNoticeMinutes, bookingWindowDays } = rules;
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

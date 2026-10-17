@@ -14,13 +14,25 @@ function Section({ title, children }) {
 }
 
 const muted = { margin: 0, fontSize: 13.5, lineHeight: 1.55, color: 'var(--muted)' };
+// A share as typed: whole percent, 0–100.
+const isShare = (v) => v !== '' && Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 100;
 const dateOf = (iso, lang) => (iso ? formatDate(new Date(iso), lang) : '');
 
-// Where a master manages the account around their page: the link to share,
-// the subscription, Telegram, their region settings, password, and — at the
-// bottom — deleting it all.
-export default function SettingsScreen({ T, lang, account, refreshAccount, onAuthError, setSessionToken, onLogout }) {
-  const { master, access } = account;
+// Where a login manages the account around its page: the link to share, the
+// subscription, Telegram, region settings, password, and — at the bottom —
+// deleting it all.
+//
+// - An individual master: all of it, for their own page.
+// - A salon's owner: the salon's — its name, locale, subscription and
+//   Telegram chat (every booking in the salon) — plus their own page's link if
+//   they are one of its masters.
+// - A salon's master: their page's link, their Telegram, the language it
+//   speaks, and their password. The rest is the owner's.
+export default function SettingsScreen({ T, lang, account, salon, refreshAccount, refreshSalon, onAuthError, setSessionToken, onLogout }) {
+  const { master, access, organization } = account;
+  const isOwner = account.role === 'owner';
+  const isSalon = organization.kind === 'salon';
+  const isSalonOwner = isSalon && isOwner;
   const [message, setMessage] = useState(null); // { section, key, error? }
   const [busy, setBusy] = useState(null);
   const say = (section, key, error = false) => setMessage({ section, key, error });
@@ -93,12 +105,14 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
 
   // -------------------------------------------------------------- telegram
   const [telegramOpened, setTelegramOpened] = useState(false);
+  // The owner of a salon connects the salon's chat; everyone else their own.
+  const telegramConnected = isSalonOwner ? organization.telegramConnected : master.telegramConnected;
   async function connectTelegram() {
     // Opened synchronously from the click so the browser doesn't block it as
     // a popup; pointed at the bot once the link arrives.
     const tab = window.open('', '_blank');
     try {
-      const { url } = await api.connectTelegram();
+      const { url } = await (isSalonOwner ? api.connectSalonTelegram() : api.connectTelegram());
       if (tab) tab.location.href = url;
       else window.location.href = url;
       setTelegramOpened(true);
@@ -109,7 +123,7 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
   }
   async function disconnectTelegram() {
     try {
-      await api.disconnectTelegram();
+      await (isSalonOwner ? api.disconnectSalonTelegram() : api.disconnectTelegram());
       await refreshAccount();
     } catch (err) {
       failed('telegram', err);
@@ -117,12 +131,17 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
   }
 
   // ---------------------------------------------------------------- region
+  // The locale is the organization's; the notification language is the
+  // calendar's own, or for a salon's owner the salon chat's.
   const [region, setRegion] = useState({
-    languages: master.languages,
-    defaultLang: master.defaultLang,
-    timezone: master.timezone,
-    currency: master.currency,
-    notifyLang: master.notifyLang,
+    ...(isSalonOwner
+      ? { name: organization.name, masterSharePercent: salon?.organization.masterSharePercent ?? 40 }
+      : {}),
+    languages: organization.languages,
+    defaultLang: organization.defaultLang,
+    timezone: organization.timezone,
+    currency: organization.currency,
+    notifyLang: isSalonOwner ? organization.notifyLang : master.notifyLang,
   });
   function toggleLanguage(code) {
     const languages = region.languages.includes(code)
@@ -132,9 +151,20 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
     setRegion({ ...region, languages, defaultLang: languages.includes(region.defaultLang) ? region.defaultLang : languages[0] });
   }
   async function saveRegion() {
+    if (isSalonOwner && !isShare(region.masterSharePercent)) {
+      say('region', 'invalid_share', true);
+      return;
+    }
     setBusy('region');
     try {
-      await api.updateSettings(region);
+      if (isSalonOwner) {
+        await api.updateSalon({ ...region, masterSharePercent: Number(region.masterSharePercent) });
+        await refreshSalon();
+      } else if (isOwner) {
+        await api.updateSettings(region);
+      } else {
+        await api.updateSettings({ notifyLang: region.notifyLang });
+      }
       await refreshAccount();
       say('region', 'settingsSaved');
     } catch (err) {
@@ -180,6 +210,7 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 720 }}>
       <h2 style={{ fontSize: 22, fontWeight: 500 }}>{T.settingsTitle}</h2>
 
+      {master && (
       <Section title={T.yourPageSection}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <code style={{ fontSize: 14.5, padding: '8px 12px', borderRadius: 10, background: 'var(--bg)', wordBreak: 'break-all' }}>
@@ -189,13 +220,17 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
           <a className="btn-primary" href={master.siteUrl} target="_blank" rel="noreferrer">{T.openPage}</a>
         </div>
       </Section>
+      )}
 
+      {isOwner && (
       <Section title={T.subscriptionSection}>
         <p style={{ ...muted, color: ['expired', 'past_due', 'suspended'].includes(access.state) ? 'var(--terracotta)' : 'var(--ink)' }}>
           {stateText}
         </p>
+        {isSalonOwner && salon && <p style={muted}>{T.salonPlan(salon.activeMasters, T.planNames[salon.plan])}</p>}
         {/* What subscribing costs, before the button that does it. */}
-        {platformPrice && (!subscribed || access.state === 'cancelled') && <p style={muted}>{T.billingPrice(platformPrice)}</p>}
+        {/* The advertised price is the individual one; a salon's tiers are priced separately. */}
+        {platformPrice && !isSalon && (!subscribed || access.state === 'cancelled') && <p style={muted}>{T.billingPrice(platformPrice)}</p>}
         {access.state !== 'suspended' && (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {!subscribed || access.state === 'cancelled' ? (
@@ -212,18 +247,19 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
         )}
         {note('billing')}
       </Section>
+      )}
 
       <Section title={T.telegramSection}>
         {!account.telegramAvailable ? (
           <p style={muted}>{T.telegramUnavailable}</p>
-        ) : master.telegramConnected ? (
+        ) : telegramConnected ? (
           <>
-            <p style={{ ...muted, color: 'var(--sage)' }}>✓ {T.telegramConnected}</p>
+            <p style={{ ...muted, color: 'var(--sage)' }}>✓ {isSalonOwner ? T.salonTelegramConnected : T.telegramConnected}</p>
             <div><button className="btn-outline" onClick={disconnectTelegram}>{T.disconnectBtn}</button></div>
           </>
         ) : (
           <>
-            <p style={muted}>{T.telegramNotConnected}</p>
+            <p style={muted}>{isSalonOwner ? T.salonTelegramNotConnected : T.telegramNotConnected}</p>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <button className="btn-primary" onClick={connectTelegram}>{T.connectTelegramBtn}</button>
               {telegramOpened && <button className="btn-outline" onClick={refreshAccount}>{T.checkAgain}</button>}
@@ -234,7 +270,38 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
         {note('telegram')}
       </Section>
 
-      <Section title={T.regionSection}>
+      <Section title={isSalonOwner ? T.salonSection : isOwner ? T.regionSection : T.notifySection}>
+        {isSalonOwner && (
+          <>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5, color: 'var(--muted)', maxWidth: 360 }}>
+              {T.salonNameLabel}
+              <input className="field-input" value={region.name} onChange={(e) => setRegion({ ...region, name: e.target.value })} />
+            </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label htmlFor="master-share" style={{ fontSize: 12.5, color: 'var(--muted)' }}>{T.masterShareLabel}</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <input
+                  id="master-share"
+                  className="field-input"
+                  style={{ width: 90 }}
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={region.masterSharePercent}
+                  onChange={(e) => setRegion({ ...region, masterSharePercent: e.target.value })}
+                />
+                <span style={{ fontSize: 14 }}>%</span>
+                {isShare(region.masterSharePercent) && (
+                  <span style={{ fontSize: 13.5, color: 'var(--sage)', fontWeight: 600 }}>
+                    {T.splitLine(100 - Number(region.masterSharePercent), Number(region.masterSharePercent))}
+                  </span>
+                )}
+              </div>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{T.masterShareHint}</span>
+            </div>
+          </>
+        )}
+        {isOwner && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{T.languagesLabel}</span>
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
@@ -245,21 +312,26 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
               </label>
             ))}
           </div>
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{T.regionHint}</span>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{isSalonOwner ? T.salonRegionHint : T.regionHint}</span>
         </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
+          {isOwner && (
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5, color: 'var(--muted)' }}>
             {T.defaultLangLabel}
             <select className="field-input" value={region.defaultLang} onChange={(e) => setRegion({ ...region, defaultLang: e.target.value })}>
               {region.languages.map((code) => <option key={code} value={code}>{LANG_META[code].name}</option>)}
             </select>
           </label>
+          )}
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5, color: 'var(--muted)' }}>
             {T.notifyLangLabel}
             <select className="field-input" value={region.notifyLang} onChange={(e) => setRegion({ ...region, notifyLang: e.target.value })}>
               {LANG_ORDER.map((code) => <option key={code} value={code}>{LANG_META[code].name}</option>)}
             </select>
           </label>
+          {isOwner && (
+          <>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5, color: 'var(--muted)' }}>
             {T.timezoneLabel}
             <select className="field-input" value={region.timezone} onChange={(e) => setRegion({ ...region, timezone: e.target.value })}>
@@ -272,6 +344,8 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
               {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </label>
+          </>
+          )}
         </div>
         <div><button className="btn-primary" onClick={saveRegion} disabled={busy === 'region'}>{T.saveBtn}</button></div>
         {note('region')}
@@ -292,8 +366,9 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
         {note('password')}
       </Section>
 
+      {isOwner && (
       <Section title={T.dangerSection}>
-        <p style={muted}>{T.deleteAccountHint}</p>
+        <p style={muted}>{isSalon ? T.deleteSalonHint : T.deleteAccountHint}</p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -324,6 +399,7 @@ export default function SettingsScreen({ T, lang, account, refreshAccount, onAut
         </form>
         {note('delete')}
       </Section>
+      )}
     </div>
   );
 }

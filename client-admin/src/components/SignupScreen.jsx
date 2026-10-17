@@ -3,28 +3,7 @@ import LangSwitcher from './LangSwitcher.jsx';
 import { api, ApiError } from '../api.js';
 import { LANG_META, LANG_ORDER, PLATFORM_DOMAIN, PRODUCT_NAME } from '../i18n.js';
 import { CURRENCIES, browserTimeZone, guessCurrency, timeZones } from '../options.js';
-
-// Most masters will type their name in Armenian or Cyrillic, but a page
-// address is Latin — so the suggested address is transliterated from it.
-const TRANSLIT = {
-  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k',
-  л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'kh', ц: 'ts',
-  ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
-  ա: 'a', բ: 'b', գ: 'g', դ: 'd', ե: 'e', զ: 'z', է: 'e', ը: 'y', թ: 't', ժ: 'zh', ի: 'i', լ: 'l',
-  խ: 'kh', ծ: 'ts', կ: 'k', հ: 'h', ձ: 'dz', ղ: 'gh', ճ: 'ch', մ: 'm', յ: 'y', ն: 'n', շ: 'sh',
-  ո: 'o', չ: 'ch', պ: 'p', ջ: 'j', ռ: 'r', ս: 's', վ: 'v', տ: 't', ր: 'r', ց: 'ts', ւ: 'v',
-  փ: 'p', ք: 'k', օ: 'o', ֆ: 'f', և: 'ev',
-};
-
-function suggestSlug(name) {
-  return [...name.toLowerCase()]
-    .map((ch) => TRANSLIT[ch] ?? ch)
-    .join('')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40)
-    .replace(/-+$/, '');
-}
+import { suggestSlug } from '../slug.js';
 
 function Field({ id, label, hint, children }) {
   return (
@@ -39,6 +18,11 @@ function Field({ id, label, hint, children }) {
 export default function SignupScreen({ T, lang, setLang, go, onSignedUp }) {
   const zone = browserTimeZone();
   const [form, setForm] = useState({
+    // 'master': an individual master. 'salon': a salon and its owner, who may
+    // also work as one of its masters (`ownerIsMaster`).
+    accountType: 'master',
+    salonName: '',
+    ownerIsMaster: false,
     displayName: '',
     slug: '',
     email: '',
@@ -105,13 +89,23 @@ export default function SignupScreen({ T, lang, setLang, go, onSignedUp }) {
   async function onSubmit(e) {
     e.preventDefault();
     setError(null);
-    if (!form.displayName.trim()) return setError('missing_display_name');
+    const isSalon = form.accountType === 'salon';
+    const withPage = !isSalon || form.ownerIsMaster;
+    if (isSalon && !form.salonName.trim()) return setError('missing_salon_name');
+    if (withPage && !form.displayName.trim()) return setError('missing_display_name');
     if (form.password.length < 8) return setError('weak_password');
-    if (slugStatus && slugStatus !== 'ok' && slugStatus !== 'checking') return setError(slugStatus);
+    if (withPage && slugStatus && slugStatus !== 'ok' && slugStatus !== 'checking') return setError(slugStatus);
 
+    // A salon's owner without a page of their own sends neither name nor address.
+    const payload = { ...form, notifyLang: lang };
+    delete payload.ownerIsMaster;
+    if (!withPage) {
+      delete payload.displayName;
+      delete payload.slug;
+    }
     setSubmitting(true);
     try {
-      const { token } = await api.signup({ ...form, notifyLang: lang });
+      const { token } = await api.signup(payload);
       onSignedUp(token);
     } catch (err) {
       setError(err instanceof ApiError && T[err.code] ? err.code : 'genericError');
@@ -140,8 +134,53 @@ export default function SignupScreen({ T, lang, setLang, go, onSignedUp }) {
 
       <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '28px 16px 48px' }}>
         <form onSubmit={onSubmit} className="card" style={{ width: '100%', maxWidth: 520, display: 'flex', flexDirection: 'column', gap: 18 }} noValidate>
-          <h2 style={{ fontSize: 24, fontWeight: 500, textAlign: 'center' }}>{T.signupTitle}</h2>
+          <h2 style={{ fontSize: 24, fontWeight: 500, textAlign: 'center' }}>{form.accountType === 'salon' ? T.signupSalonTitle : T.signupTitle}</h2>
 
+          <div role="radiogroup" aria-label={T.accountTypeLabel} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {['master', 'salon'].map((type) => {
+              const on = form.accountType === type;
+              return (
+                <button
+                  type="button"
+                  key={type}
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => set({ accountType: type })}
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: 12,
+                    textAlign: 'left',
+                    border: `1.5px solid ${on ? 'var(--sage)' : 'var(--line)'}`,
+                    background: on ? 'var(--sage-light)' : 'var(--white)',
+                    color: 'var(--ink)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                  }}
+                >
+                  <span style={{ fontSize: 14.5, fontWeight: 600 }}>{type === 'salon' ? T.accountSalon : T.accountMaster}</span>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>
+                    {type === 'salon' ? T.accountSalonHint : T.accountMasterHint}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {form.accountType === 'salon' && (
+            <>
+              <Field id="su-salon" label={T.salonNameLabel}>
+                <input id="su-salon" className="field-input" value={form.salonName} onChange={(e) => set({ salonName: e.target.value })} />
+              </Field>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+                <input type="checkbox" checked={form.ownerIsMaster} onChange={(e) => set({ ownerIsMaster: e.target.checked })} />
+                {T.ownerIsMasterLabel}
+              </label>
+            </>
+          )}
+
+          {(form.accountType === 'master' || form.ownerIsMaster) && (
+          <>
           <Field id="su-name" label={T.displayNameLabel}>
             <input id="su-name" className="field-input" value={form.displayName} onChange={(e) => onNameChange(e.target.value)} autoFocus />
           </Field>
@@ -164,6 +203,8 @@ export default function SignupScreen({ T, lang, setLang, go, onSignedUp }) {
             </div>
             <span style={{ fontSize: 12.5, minHeight: 16 }}>{slugMessage}</span>
           </Field>
+          </>
+          )}
 
           <Field id="su-email" label={T.emailLabel}>
             <input id="su-email" className="field-input" type="email" autoComplete="email" value={form.email} onChange={(e) => set({ email: e.target.value })} />
@@ -245,7 +286,7 @@ export default function SignupScreen({ T, lang, setLang, go, onSignedUp }) {
           {error && <p role="alert" style={{ margin: 0, fontSize: 13, color: 'var(--terracotta)' }}>{T[error] ?? T.genericError}</p>}
 
           <button type="submit" className="btn-primary" disabled={submitting} style={{ padding: '13px 18px', fontSize: 15 }}>
-            {submitting ? T.signingUp : T.signupBtn}
+            {submitting ? T.signingUp : form.accountType === 'salon' ? T.signupSalonBtn : T.signupBtn}
           </button>
           <p style={{ margin: 0, fontSize: 12.5, textAlign: 'center', color: 'var(--muted)' }}>{T.heroNoCard}</p>
           {/* Opens in a new tab so a half-filled form isn't lost. */}

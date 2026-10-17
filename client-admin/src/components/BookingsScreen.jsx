@@ -57,9 +57,19 @@ const EMPTY_BOOKING_FORM = {
   customerName: '',
   customerPhone: '',
   status: 'confirmed',
+  // A salon's owner chooses the master (and can hand a visit to another).
+  masterId: '',
 };
 
-export default function BookingsScreen({ T, lang, onAuthError }) {
+// For a salon's owner the screen shows one master's calendar — the one picked
+// above it (`calendarMaster`) — or every master's at once (`allMasters`), each
+// booking then carrying its `master_id`. Everyone else sees their own.
+export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMaster, allMasters }) {
+  const masters = (salon?.masters ?? []).filter((m) => m.active);
+  const masterName = (id) => {
+    const m = masters.find((x) => x.id === id);
+    return m ? m.name || m.slug : '';
+  };
   // The calendar position starts from the URL, so a reload reopens the same
   // month, day and filter — see route.js.
   const [view, setView] = useState(() => routeParam('view', (v) => v === 'year', 'month')); // 'month' | 'year'
@@ -80,6 +90,8 @@ export default function BookingsScreen({ T, lang, onAuthError }) {
   // null when the form is closed, 'new' when adding, or the id being edited.
   const [editingBookingId, setEditingBookingId] = useState(null);
   const [bookingForm, setBookingForm] = useState(EMPTY_BOOKING_FORM);
+  // The master whose calendar the booking being edited is in now.
+  const [editingMasterId, setEditingMasterId] = useState(null);
   const [savingBooking, setSavingBooking] = useState(false);
 
   const year = Number(cursor.slice(0, 4));
@@ -142,9 +154,9 @@ export default function BookingsScreen({ T, lang, onAuthError }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function changeStatus(id, status) {
+  async function changeStatus(booking, status) {
     try {
-      await api.updateBookingStatus(id, status);
+      await api.updateBookingStatus(booking.id, status, booking.master_id);
       await load();
     } catch (err) {
       if (!onAuthError(err)) setError('genericError');
@@ -190,7 +202,14 @@ export default function BookingsScreen({ T, lang, onAuthError }) {
     setDeleting(true);
     setError(null);
     try {
-      await api.deleteBookings([...selected]);
+      // Across every master, each master's go to their own calendar.
+      const byMaster = new Map();
+      for (const b of bookings.filter((x) => selected.has(x.id))) {
+        const key = b.master_id ?? null;
+        if (!byMaster.has(key)) byMaster.set(key, []);
+        byMaster.get(key).push(b.id);
+      }
+      for (const [masterId, ids] of byMaster) await api.deleteBookings(ids, masterId ?? undefined);
       setSelected(new Set());
       setConfirming(false);
       await load();
@@ -206,6 +225,7 @@ export default function BookingsScreen({ T, lang, onAuthError }) {
       ...EMPTY_BOOKING_FORM,
       items: [],
       date: cleanupView ? todayStr() : selectedDate || todayStr(),
+      masterId: String(calendarMaster?.id ?? masters[0]?.id ?? ''),
     });
     setError(null);
     setEditingBookingId('new');
@@ -225,7 +245,9 @@ export default function BookingsScreen({ T, lang, onAuthError }) {
       customerName: booking.customer_name,
       customerPhone: booking.customer_phone,
       status: booking.status,
+      masterId: String(booking.master_id ?? calendarMaster?.id ?? ''),
     });
+    setEditingMasterId(booking.master_id ?? calendarMaster?.id ?? null);
     setError(null);
     setEditingBookingId(booking.id);
   }
@@ -256,15 +278,17 @@ export default function BookingsScreen({ T, lang, onAuthError }) {
     setSavingBooking(true);
     setError(null);
     try {
+      const masterId = bookingForm.masterId ? Number(bookingForm.masterId) : undefined;
       if (editingBookingId === 'new') {
-        await api.createBooking(payload);
+        await api.createBooking(payload, masterId);
         // Jump to wherever the new booking landed, so it's visible straight away.
         setStatusFilter('');
         setView('month');
         setCursor(payload.date.slice(0, 7) + '-01');
         setSelectedDate(payload.date);
       } else {
-        await api.updateBooking(editingBookingId, payload);
+        if (masterId && masterId !== editingMasterId) payload.masterId = masterId;
+        await api.updateBooking(editingBookingId, payload, editingMasterId ?? undefined);
       }
       setEditingBookingId(null);
       await load();
@@ -370,6 +394,7 @@ export default function BookingsScreen({ T, lang, onAuthError }) {
           setForm={setBookingForm}
           services={services}
           categories={categories}
+          masters={masters}
           saving={savingBooking}
           onSave={saveBooking}
           onCancel={() => {
@@ -465,7 +490,8 @@ export default function BookingsScreen({ T, lang, onAuthError }) {
                     isEditing={editingBookingId === b.id}
                     onToggle={() => toggleOne(b.id)}
                     onEdit={() => openEditBooking(b)}
-                    onChangeStatus={(status) => changeStatus(b.id, status)}
+                    masterName={allMasters ? masterName(b.master_id) : null}
+                    onChangeStatus={(status) => changeStatus(b, status)}
                   />
                   {editingBookingId === b.id && (
                     <BookingForm
@@ -476,6 +502,7 @@ export default function BookingsScreen({ T, lang, onAuthError }) {
                       setForm={setBookingForm}
                       services={services}
                       categories={categories}
+                      masters={masters}
                       saving={savingBooking}
                       onSave={saveBooking}
                       onCancel={() => {
@@ -624,7 +651,7 @@ function YearGrid({ T, lang, bookings, selectedMonth, onPickMonth }) {
   );
 }
 
-function BookingRow({ T, lang, booking, showDate, selected, isEditing, onToggle, onEdit, onChangeStatus }) {
+function BookingRow({ T, lang, booking, showDate, masterName, selected, isEditing, onToggle, onEdit, onChangeStatus }) {
   const { dateObj, time } = splitLocalDateTime(booking.start_time);
   // Cancelling is the one status that reaches the guest (a Telegram message if
   // they turned reminders on), and a message can't be unsent — so it alone asks
@@ -646,6 +673,7 @@ function BookingRow({ T, lang, booking, showDate, selected, isEditing, onToggle,
             {time} · {(booking.items ?? []).map((z) => localName(z, lang)).join(' · ')}
           </span>
           <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+            {masterName && <strong style={{ color: 'var(--sage)' }}>{masterName} · </strong>}
             {booking.customer_name} · {booking.customer_phone} · {formatPrice(booking.price_at_booking, lang)}
           </span>
         </div>
@@ -698,7 +726,7 @@ function BookingRow({ T, lang, booking, showDate, selected, isEditing, onToggle,
 // One form for both jobs: adding a booking by hand and editing one that exists.
 // Zones are chips with an "add" picker rather than a list of checkboxes — the
 // price list runs to two dozen rows, which would bury the rest of the form.
-function BookingForm({ T, lang, title, form, setForm, services, categories, saving, onSave, onCancel, nested }) {
+function BookingForm({ T, lang, title, form, setForm, services, categories, masters, saving, onSave, onCancel, nested }) {
   const byId = new Map(services.map((s) => [String(s.id), s]));
   const chosenIds = form.items.map((i) => i.serviceId);
 
@@ -831,6 +859,20 @@ function BookingForm({ T, lang, title, form, setForm, services, categories, savi
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+        {masters.length > 0 && (
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{T.bookingMasterLabel}</span>
+            <select
+              className="field-input"
+              value={form.masterId}
+              onChange={(e) => setForm({ ...form, masterId: e.target.value })}
+            >
+              {masters.map((m) => (
+                <option key={m.id} value={String(m.id)}>{m.name || m.slug}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <Field label={T.dateLabel} type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
         <Field label={T.timeLabel} type="time" value={form.time} onChange={(v) => setForm({ ...form, time: v })} />
         <Field

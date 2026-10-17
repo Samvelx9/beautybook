@@ -17,7 +17,16 @@ function startOfMonth() {
   return `${todayStr().slice(0, 7)}-01`;
 }
 
-export default function DashboardScreen({ T, lang, onAuthError, account, setTab }) {
+export default function DashboardScreen({ T, lang, onAuthError, account, salon, setTab }) {
+  // The owner keeps the books: expenses and the whole organization's income.
+  // A salon's master sees what their own visits brought in.
+  const isOwner = account.role === 'owner';
+  const salonMasters = salon?.masters ?? [];
+  // A salon's owner sees the whole income and, beside it, their part once the
+  // masters' shares are paid. A salon's master sees only their share.
+  const showsShare = Boolean(salon);
+  const isSalonMaster = account.organization.kind === 'salon' && !isOwner;
+  const [masterId, setMasterId] = useState(() => routeParam('master', (v) => /^\d+$/.test(v), ''));
   // The period starts from the URL so a reload keeps it — see route.js.
   const [from, setFrom] = useState(() => routeParam('from', isDateStr, startOfMonth()));
   const [to, setTo] = useState(() => routeParam('to', isDateStr, todayStr()));
@@ -26,8 +35,9 @@ export default function DashboardScreen({ T, lang, onAuthError, account, setTab 
     setRouteParams({
       from: from === startOfMonth() ? null : from,
       to: to === todayStr() ? null : to,
+      master: masterId || null,
     });
-  }, [from, to]);
+  }, [from, to, masterId]);
   const [financials, setFinancials] = useState(null);
   const [expenses, setExpenses] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -47,9 +57,9 @@ export default function DashboardScreen({ T, lang, onAuthError, account, setTab 
     setLoading(true);
     try {
       const [fin, exp, cats] = await Promise.all([
-        api.getFinancials({ from, to }),
-        api.getExpenses({ from, to }),
-        api.getExpenseCategories(),
+        api.getFinancials({ from, to, masterId }),
+        isOwner ? api.getExpenses({ from, to }) : [],
+        isOwner ? api.getExpenseCategories() : [],
       ]);
       setFinancials(fin);
       setExpenses(exp);
@@ -64,7 +74,7 @@ export default function DashboardScreen({ T, lang, onAuthError, account, setTab 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to]);
+  }, [from, to, masterId]);
 
   async function submitExpense(e) {
     e.preventDefault();
@@ -138,7 +148,7 @@ export default function DashboardScreen({ T, lang, onAuthError, account, setTab 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <OnboardingCard T={T} account={account} setTab={setTab} />
+      <OnboardingCard T={T} account={account} salon={salon} setTab={setTab} />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <h2 style={{ fontSize: 22, fontWeight: 500 }}>{T.dashboardTitle}</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -168,6 +178,20 @@ export default function DashboardScreen({ T, lang, onAuthError, account, setTab 
             {T.to}
             <input className="field-input" style={{ width: 145 }} type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </label>
+          {salonMasters.length > 1 && (
+            <select
+              className="field-input"
+              style={{ width: 'auto' }}
+              aria-label={T.pickerLabel}
+              value={masterId}
+              onChange={(e) => setMasterId(e.target.value)}
+            >
+              <option value="">{T.pickerAll}</option>
+              {salonMasters.map((m) => (
+                <option key={m.id} value={String(m.id)}>{m.name || m.slug}</option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
@@ -178,31 +202,57 @@ export default function DashboardScreen({ T, lang, onAuthError, account, setTab 
       ) : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
-            <MetricCard label={T.metricIncome} value={formatPrice(financials.income.total, lang)} />
-            <MetricCard label={T.metricExpenses} value={formatPrice(financials.expenses.total, lang)} />
             <MetricCard
-              label={T.metricNet}
-              value={formatPrice(financials.net, lang)}
-              color={financials.net < 0 ? 'var(--terracotta)' : 'var(--sage)'}
+              label={isSalonMaster ? T.metricYourIncome : T.metricIncome}
+              value={formatPrice(financials.income.total, lang)}
             />
+            {showsShare && (
+              <MetricCard label={T.metricYourShare} value={formatPrice(financials.income.ownerShare, lang)} color="var(--sage)" />
+            )}
+            {isOwner && !masterId && (
+              <>
+                <MetricCard label={T.metricExpenses} value={formatPrice(financials.expenses.total, lang)} />
+                <MetricCard
+                  label={T.metricNet}
+                  value={formatPrice(financials.net, lang)}
+                  color={financials.net < 0 ? 'var(--terracotta)' : 'var(--sage)'}
+                />
+              </>
+            )}
             <MetricCard label={T.metricBookingsCompleted} value={String(financials.bookingsCompleted)} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
             <BreakdownCard
               title={T.incomeByService}
-              groups={groupByTreatment(financials.income.byService, lang)}
+              groups={groupByTreatment(financials.income.byService, lang, showsShare)}
               lang={lang}
               noData={T.noData}
+              shareLabel={showsShare ? T.yourShareColumn : null}
             />
-            <BreakdownCard
-              title={T.expensesByCategory}
-              rows={financials.expenses.byCategory.map((r) => ({ label: r.category, value: r.total }))}
-              lang={lang}
-              noData={T.noData}
-            />
+            {salonMasters.length > 1 && !masterId && (
+              <BreakdownCard
+                title={T.incomeByMaster}
+                rows={financials.income.byMaster.map((r) => {
+                  const m = salonMasters.find((x) => x.id === r.master_id);
+                  return { label: m ? m.name || m.slug : '—', value: r.total, share: r.ownerShare };
+                })}
+                lang={lang}
+                noData={T.noData}
+                shareLabel={T.yourShareColumn}
+              />
+            )}
+            {isOwner && !masterId && (
+              <BreakdownCard
+                title={T.expensesByCategory}
+                rows={financials.expenses.byCategory.map((r) => ({ label: r.category, value: r.total }))}
+                lang={lang}
+                noData={T.noData}
+              />
+            )}
           </div>
 
+          {isOwner && (
           <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <h3 style={{ fontSize: 16, fontWeight: 600 }}>{T.addExpense}</h3>
             <form onSubmit={submitExpense} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -346,6 +396,7 @@ export default function DashboardScreen({ T, lang, onAuthError, account, setTab 
               </div>
             )}
           </section>
+          )}
         </>
       )}
     </div>
@@ -372,7 +423,8 @@ function MetricCard({ label, value, color = 'var(--ink)' }) {
 
 // The same zone can exist under several treatments ("Deep bikini" for both
 // waxing and sugaring), so income is shown per treatment, biggest first.
-function groupByTreatment(rows, lang) {
+// `withShare`: carry the owner's share along, for a salon's owner.
+function groupByTreatment(rows, lang, withShare) {
   const groups = new Map();
   for (const r of rows) {
     if (!groups.has(r.category_id)) {
@@ -380,16 +432,22 @@ function groupByTreatment(rows, lang) {
     }
     const group = groups.get(r.category_id);
     group.value += r.total;
-    group.rows.push({ label: localName(r, lang), value: r.total });
+    if (withShare) group.share = (group.share ?? 0) + r.ownerShare;
+    group.rows.push({ label: localName(r, lang), value: r.total, share: withShare ? r.ownerShare : undefined });
   }
   return [...groups.values()].sort((a, b) => b.value - a.value);
 }
 
-function BreakdownCard({ title, rows, groups, lang, noData }) {
+function BreakdownCard({ title, rows, groups, lang, noData, shareLabel }) {
   const empty = groups ? groups.length === 0 : rows.length === 0;
   return (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <h3 style={{ fontSize: 15, fontWeight: 600 }}>{title}</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+        <h3 style={{ fontSize: 15, fontWeight: 600, flex: 1 }}>{title}</h3>
+        {shareLabel && !empty && (
+          <span style={{ ...SHARE_COLUMN, fontSize: 11.5, color: 'var(--muted)' }}>{shareLabel}</span>
+        )}
+      </div>
       {empty ? (
         <span style={{ fontSize: 13, color: 'var(--muted)' }}>{noData}</span>
       ) : groups ? (
@@ -399,14 +457,16 @@ function BreakdownCard({ title, rows, groups, lang, noData }) {
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
+                gap: 12,
                 fontSize: 12,
                 color: 'var(--muted)',
                 textTransform: 'uppercase',
                 letterSpacing: '0.04em',
               }}
             >
-              <span>{g.label}</span>
+              <span style={{ flex: 1 }}>{g.label}</span>
               <span>{formatPrice(g.value, lang)}</span>
+              {g.share !== undefined && <span style={SHARE_COLUMN}>{formatPrice(g.share, lang)}</span>}
             </div>
             {g.rows.map((r, j) => (
               <BreakdownRow key={j} row={r} lang={lang} indent />
@@ -420,11 +480,16 @@ function BreakdownCard({ title, rows, groups, lang, noData }) {
   );
 }
 
+// The amount, and — for a salon's owner — their share of it in a second column.
+const SHARE_COLUMN = { minWidth: 88, textAlign: 'right' };
 function BreakdownRow({ row, lang, indent = false }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13.5, paddingLeft: indent ? 12 : 0 }}>
-      <span>{row.label}</span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13.5, paddingLeft: indent ? 12 : 0 }}>
+      <span style={{ flex: 1 }}>{row.label}</span>
       <span style={{ fontWeight: 600 }}>{formatPrice(row.value, lang)}</span>
+      {row.share !== undefined && (
+        <span style={{ ...SHARE_COLUMN, fontWeight: 600, color: 'var(--sage)' }}>{formatPrice(row.share, lang)}</span>
+      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { PLATFORM_STRINGS } from './strings-platform.js';
+import { SALON_STRINGS } from './strings-salon.js';
 
 export * from 'salon-shared/i18n';
 
@@ -544,4 +545,4 @@ export const STRINGS = {
 
 // Platform copy lives in its own file; it wins over any key repeated above
 // (the login strings, now about an email rather than a username).
-for (const lang of Object.keys(STRINGS)) Object.assign(STRINGS[lang], PLATFORM_STRINGS[lang]);
+for (const lang of Object.keys(STRINGS)) Object.assign(STRINGS[lang], PLATFORM_STRINGS[lang], SALON_STRINGS[lang]);

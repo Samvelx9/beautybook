@@ -59,7 +59,10 @@ const LANG_SUFFIX = [
   { suffix: 'En', labelKey: 'inEnglish' },
 ];
 
-export default function ProfileScreen({ T, onAuthError, account }) {
+export default function ProfileScreen({ T, onAuthError, account, calendarMaster }) {
+  // The page this landing page belongs to: the master a salon's owner is
+  // editing, or the login's own.
+  const siteUrl = calendarMaster?.siteUrl ?? account.master.siteUrl;
   const [profile, setProfile] = useState(null);
   const [form, setForm] = useState({});
   const [loading, setLoading] = useState(true);
@@ -194,7 +197,7 @@ export default function ProfileScreen({ T, onAuthError, account }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
           {profile?.photoVersion ? (
             <img
-              src={api.photoUrl(account.master.siteUrl, profile.photoVersion)}
+              src={api.photoUrl(siteUrl, profile.photoVersion)}
               alt=""
               style={{
                 width: 104,

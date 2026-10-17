@@ -36,6 +36,19 @@ Most urgent first. What's already built is in [DONE.md](DONE.md).
 - [ ] **Monitoring**: an uptime check on `/api/health` and alerts when the backend or
       certificate renewal fails.
 - [ ] **Try it on a phone** end to end (sign-up, setup, booking, Telegram).
+- [ ] **Armenian first.** The platform speaks three languages — Armenian, Russian,
+      English — and Armenian must be the default everywhere. The Armenian strings
+      exist for every screen; what's left is the defaults, which are Russian today:
+  - [ ] `DEFAULT_LANG` in `shared/i18n.js` (the admin panel falls back to it when
+        the browser isn't set to a supported language; the guest page until the
+        master's own default arrives).
+  - [ ] Server defaults: `notify_lang` on `masters` and `organizations`, the
+        sign-up default, and `masterText()`'s fallback for Telegram messages.
+        A master's page already opens in Armenian by default (`default_lang`).
+  - [ ] The sign-up form preselects Armenian for the page and for notifications.
+  - [ ] A native speaker reads the Armenian copy through — it hasn't been
+        proofread — including the Telegram messages and the privacy policy.
+  - [ ] Every new screen ships in all three languages (the salon screens included).
 
 ## 3. Product
 
@@ -84,11 +97,27 @@ individual masters keep the current price.
   - [ ] Deactivating a master leaves their future visits in place: offer to hand
         them to someone else or cancel them.
   - [ ] Turning a solo account into a salon (today a salon is chosen at sign-up).
-- [ ] **Phase 3 — sign-up and admin UI.** Sign-up asks "individual master or
-      salon"; the admin panel copes with an owner who has no calendar
-      (`account.master` is null) and with a salon's master (no price-list editing,
-      expenses or billing); salon screens: Masters, all-masters Bookings (filter / a column per
-      master), salon profile, price list with who-does-what.
+- [x] **Phase 3 — sign-up and admin UI.** Sign-up asks "individual master or
+      beauty salon" (a salon's owner may tick "I also work as a master"). A salon's
+      owner gets a Masters screen (add — one-time password shown once — give
+      themselves a calendar, choose each master's services, deactivate, reset a
+      password), a master picker over Bookings / Availability / Landing page with
+      "All masters" on Bookings, a master field in the booking form (hand a visit
+      to another master), income by master on the dashboard, and the salon's
+      name, locale, plan line and Telegram chat in Settings. A salon's master gets
+      their own calendar, income and notification settings only. Minimum notice
+      and booking window are per calendar (`/availability/settings`). Text in
+      English, Russian and Armenian.
+  - [x] **Income split.** The owner sets the masters' share of each visit (salon
+        default 40%, editable in Settings; a master's own share on the Masters
+        screen; the owner's own visits are all theirs). It's fixed on the booking
+        when the visit is completed. A master sees only their share; the owner
+        sees the whole income with their share beside it, and net is their share
+        less expenses.
+  - [ ] What each master is owed for a period, as a payout list the owner can
+        mark paid.
+  - [ ] A salon-wide day view: every master side by side as columns, for the
+        front desk (today "All masters" is one list).
 - [ ] **Phase 4 — guest side.** A salon page at `<salon slug>.<domain>`: services →
       "any master" or a chosen one → slots. "Any" shows the union of the
       qualified masters' free slots and assigns a free one when booking (retry on

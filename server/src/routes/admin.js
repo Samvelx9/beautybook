@@ -83,7 +83,19 @@ async function accountBody(req) {
     email: req.user.email,
     isPlatformAdmin: req.user.is_platform_admin,
     role: req.user.role,
-    organization: { id: organization.id, kind: organization.kind, name: organization.name },
+    // The locale is the organization's: an owner without a calendar formats
+    // prices and dates by it too.
+    organization: {
+      id: organization.id,
+      kind: organization.kind,
+      name: organization.name,
+      timezone: organization.timezone,
+      currency: organization.currency,
+      languages: organization.languages,
+      defaultLang: organization.default_lang,
+      notifyLang: organization.notify_lang,
+      telegramConnected: Boolean(organization.telegram_chat_id),
+    },
     // Null for a salon owner who isn't one of its masters.
     master: master && {
       id: master.id,
@@ -653,10 +665,17 @@ adminRouter.delete('/expenses/:id', asyncHandler(async (req, res) => {
 // Financials
 // ---------------------------------------------------------------------------
 
-// What came in and what went out over a period. The owner sees the whole
-// organization — every master's completed visits and the expenses — and may
-// narrow the income to one master with ?masterId. A salon's master sees what
-// their own visits brought in; expenses aren't theirs.
+// What came in and what went out over a period.
+//
+// The owner sees the whole organization — every master's completed visits at
+// what the clients paid (`total`), the owner's part of that once the masters'
+// shares are paid (`ownerShare`), and the expenses — and may narrow the
+// income to one master with ?masterId. Net is the owner's part less expenses:
+// a master's share was never the salon's money.
+//
+// A salon's master sees only what is theirs: their share of their own visits,
+// as `total`. Each visit is split at the share it was completed at
+// (bookings.master_share_percent).
 adminRouter.get('/financials', asyncHandler(async (req, res) => {
   const isOwner = req.user.role === 'owner';
   const tz = req.organization.timezone;
@@ -680,6 +699,10 @@ adminRouter.get('/financials', asyncHandler(async (req, res) => {
     params.push(masterId);
     onlyMaster = ' AND b.master_id = $5';
   }
+  const completed = `b.organization_id = $1 AND b.status = 'completed'
+       AND (b.start_time AT TIME ZONE $4)::date BETWEEN $2 AND $3${onlyMaster}`;
+  // The master's part of an amount, rounded to whole units per visit.
+  const masterPart = (amount) => `round(${amount} * b.master_share_percent / 100.0)`;
 
   // Zone names repeat across treatments ("Deep bikini" is both waxing and
   // sugaring), so each row carries its treatment for the dashboard to group by.
@@ -688,39 +711,31 @@ adminRouter.get('/financials', asyncHandler(async (req, res) => {
     `SELECT s.id AS service_id, s.name_en, s.name_ru, s.name_hy,
             c.id AS category_id, c.name_en AS category_name_en,
             c.name_ru AS category_name_ru, c.name_hy AS category_name_hy,
-            COALESCE(SUM(i.price_at_booking), 0) AS total, COUNT(i.id) AS count
+            COALESCE(SUM(i.price_at_booking), 0) AS total,
+            COALESCE(SUM(${masterPart('i.price_at_booking')}), 0) AS master_share,
+            COUNT(i.id) AS count
      FROM booking_items i
      JOIN bookings b ON b.id = i.booking_id
      JOIN services s ON s.id = i.service_id
      JOIN service_categories c ON c.id = s.category_id
-     WHERE b.organization_id = $1 AND b.status = 'completed'
-       AND (b.start_time AT TIME ZONE $4)::date BETWEEN $2 AND $3${onlyMaster}
+     WHERE ${completed}
      GROUP BY s.id, c.id
      ORDER BY total DESC`,
     params
   );
 
-  // One visit covering three zones is one completed booking but three rows
-  // above, so the headline count is asked for separately.
-  const { rows: completedRows } = await pool.query(
-    `SELECT COUNT(*)::int AS count FROM bookings b
-     WHERE b.organization_id = $1 AND b.status = 'completed'
-       AND (b.start_time AT TIME ZONE $4)::date BETWEEN $2 AND $3${onlyMaster}`,
+  // Per master — also the headline numbers, summed below: one visit covering
+  // three zones is one completed booking but three rows above.
+  const { rows: incomeByMaster } = await pool.query(
+    `SELECT b.master_id, COALESCE(SUM(b.price_at_booking), 0) AS total,
+            COALESCE(SUM(${masterPart('b.price_at_booking')}), 0) AS master_share,
+            COUNT(*) AS count
+     FROM bookings b
+     WHERE ${completed}
+     GROUP BY b.master_id
+     ORDER BY total DESC`,
     params
   );
-
-  // Income per master, for a salon owner's overview.
-  const { rows: incomeByMaster } = isOwner
-    ? await pool.query(
-        `SELECT b.master_id, COALESCE(SUM(b.price_at_booking), 0) AS total, COUNT(*) AS count
-         FROM bookings b
-         WHERE b.organization_id = $1 AND b.status = 'completed'
-           AND (b.start_time AT TIME ZONE $4)::date BETWEEN $2 AND $3${onlyMaster}
-         GROUP BY b.master_id
-         ORDER BY total DESC`,
-        params
-      )
-    : { rows: [] };
 
   const { rows: expensesByCategory } = isOwner
     ? await pool.query(
@@ -733,18 +748,30 @@ adminRouter.get('/financials', asyncHandler(async (req, res) => {
       )
     : { rows: [] };
 
-  const numbers = (row) => ({ ...row, total: Number(row.total), count: Number(row.count) });
-  const byService = incomeByService.map(numbers);
-  const byCategory = expensesByCategory.map(numbers);
+  // For the owner: the whole amount and their part of it. For a master: their
+  // part, as the only amount they see.
+  const shaped = ({ master_share: share, ...row }) => {
+    const total = Number(row.total);
+    const masterShare = Number(share);
+    return isOwner
+      ? { ...row, total, ownerShare: total - masterShare, count: Number(row.count) }
+      : { ...row, total: masterShare, count: Number(row.count) };
+  };
+  const byService = incomeByService.map(shaped);
+  const byMaster = incomeByMaster.map(shaped);
+  const byCategory = expensesByCategory.map((row) => ({ ...row, total: Number(row.total), count: Number(row.count) }));
 
-  const incomeTotal = byService.reduce((sum, row) => sum + row.total, 0);
+  const incomeTotal = byMaster.reduce((sum, row) => sum + row.total, 0);
+  const ownerShare = byMaster.reduce((sum, row) => sum + (row.ownerShare ?? 0), 0);
   const expensesTotal = byCategory.reduce((sum, row) => sum + row.total, 0);
 
   res.json({
     period: { from, to },
-    income: { total: incomeTotal, byService, byMaster: incomeByMaster.map(numbers) },
+    income: isOwner
+      ? { total: incomeTotal, ownerShare, byService, byMaster }
+      : { total: incomeTotal, byService, byMaster: [] },
     expenses: { total: expensesTotal, byCategory },
-    net: incomeTotal - expensesTotal,
-    bookingsCompleted: completedRows[0].count,
+    net: (isOwner ? ownerShare : incomeTotal) - expensesTotal,
+    bookingsCompleted: byMaster.reduce((sum, row) => sum + row.count, 0),
   });
 }));
