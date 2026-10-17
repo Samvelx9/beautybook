@@ -4,6 +4,8 @@ import { formatDate, formatPlatformPrice } from '../i18n.js';
 import { routeParam, setRouteParams } from '../route.js';
 import MasterDetail from './MasterDetail.jsx';
 import OrganizationDetail from './OrganizationDetail.jsx';
+import PlatformOverview from './PlatformOverview.jsx';
+import DeleteOrganizationCard from './DeleteOrganizationCard.jsx';
 import ConfirmInline from './ConfirmInline.jsx';
 
 const STATUS_COLOR = {
@@ -24,7 +26,7 @@ const STATUS_COLOR = {
 export default function PlatformScreen({ T, lang, onAuthError }) {
   const [masters, setMasters] = useState(null);
   const [organizations, setOrganizations] = useState(null);
-  const [view, setView] = useState(() => routeParam('list', (v) => v === 'masters', 'organizations'));
+  const [view, setView] = useState(() => routeParam('list', (v) => v === 'masters' || v === 'overview', 'organizations'));
   // The salon being looked at, kept in the URL like the master.
   const [openOrgId, setOpenOrgId] = useState(() => {
     const value = routeParam('org', (v) => /^\d+$/.test(v), null);
@@ -42,7 +44,7 @@ export default function PlatformScreen({ T, lang, onAuthError }) {
   });
 
   useEffect(() => {
-    setRouteParams({ master: openId, org: openOrgId, list: view === 'masters' ? 'masters' : null });
+    setRouteParams({ master: openId, org: openOrgId, list: view === 'organizations' ? null : view });
   }, [openId, openOrgId, view]);
 
   async function load() {
@@ -221,6 +223,11 @@ export default function PlatformScreen({ T, lang, onAuthError }) {
     );
   };
 
+  // The individual master's account behind an open master page, if it is one.
+  const soloOrganization = openId !== null
+    ? organizations?.find((o) => o.kind === 'solo' && o.masterId === openId) ?? null
+    : null;
+
   if (openId !== null) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -235,6 +242,15 @@ export default function PlatformScreen({ T, lang, onAuthError }) {
           onAuthError={onAuthError}
           actions={actions}
         />
+        {/* An individual master's page is their whole account. */}
+        {soloOrganization && (
+          <DeleteOrganizationCard
+            T={T}
+            organization={soloOrganization}
+            onDeleted={() => { setOpenId(null); load(); }}
+            onAuthError={onAuthError}
+          />
+        )}
       </div>
     );
   }
@@ -251,6 +267,7 @@ export default function PlatformScreen({ T, lang, onAuthError }) {
           onOpenMaster={setOpenId}
           onAuthError={onAuthError}
           actions={orgActions}
+          onDeleted={() => { setOpenOrgId(null); load(); }}
         />
       </div>
     );
@@ -281,16 +298,18 @@ export default function PlatformScreen({ T, lang, onAuthError }) {
         <h2 style={{ fontSize: 22, fontWeight: 500 }}>{T.platformTitle}</h2>
         <p style={{ margin: '6px 0 0', fontSize: 13.5, color: 'var(--muted)' }}>
           {T.platformCaption}
-          {view === 'organizations'
-            ? organizations && ` — ${organizations.length}`
-            : masters && ` — ${masters.length}`}
+          {view === 'organizations' && organizations && ` — ${organizations.length}`}
+          {view === 'masters' && masters && ` — ${masters.length}`}
         </p>
       </div>
 
       <div style={{ display: 'flex', gap: 8 }}>
+        {tab('overview', T.viewOverview)}
         {tab('organizations', T.viewOrganizations)}
         {tab('masters', T.viewAllMasters)}
       </div>
+
+      {view === 'overview' && <PlatformOverview T={T} lang={lang} onAuthError={onAuthError} />}
 
       {error && <p role="alert" style={{ margin: 0, fontSize: 13, color: 'var(--terracotta)' }}>{T[error]}</p>}
       {!masters && !error && <p style={{ color: 'var(--muted)' }}>{T.loading}</p>}
@@ -352,6 +371,11 @@ export default function PlatformScreen({ T, lang, onAuthError }) {
                 <a href={m.siteUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>
                   {m.siteUrl.replace(/^https?:\/\//, '')}
                 </a>
+                {m.customDomain && m.customDomainStatus !== 'active' && (
+                  <span style={{ fontSize: 12.5, color: m.customDomainStatus === 'failed' || m.customDomainStatus === 'conflict' ? 'var(--terracotta)' : 'var(--muted)' }}>
+                    {m.customDomain}: {T.domainStatus[m.customDomainStatus] ?? m.customDomainStatus}
+                  </span>
+                )}
                 <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
                   {m.email} · {T.colCreated}: {formatDate(new Date(m.createdAt), lang)}
                   {m.telegramConnected ? ' · Telegram ✓' : ''}

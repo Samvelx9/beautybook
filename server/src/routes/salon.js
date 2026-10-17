@@ -17,6 +17,7 @@ import {
   planFor,
   setOrganizationLocale,
   slugProblem,
+  changeMasterSlug,
 } from '../services/masters.js';
 import { getBotUsername, telegramToken } from '../services/telegram.js';
 import { EMAIL_PATTERN, readCurrency, readLanguages } from './auth.js';
@@ -59,7 +60,7 @@ const masterIdParam = (req) => {
 async function salonBody(organizationId) {
   const organization = await getOrganizationById(organizationId);
   const { rows: masters } = await pool.query(
-    `SELECT m.id, m.slug, m.custom_domain, m.deactivated_at, m.telegram_chat_id, m.created_at,
+    `SELECT m.id, m.slug, m.custom_domain, m.custom_domain_status, m.deactivated_at, m.telegram_chat_id, m.created_at,
             m.share_percent, current_master_share(m.id) AS effective_share,
             m.tax_payer, current_tax_payer(m.id) AS effective_tax_payer,
             p.owner_name_en, p.owner_name_ru, p.owner_name_hy,
@@ -288,6 +289,7 @@ async function salonMaster(req, res) {
 // { serviceIds: [...] } — the services they perform, replacing the list.
 // { sharePercent: n | null } — their own share of their visits' income, or
 // null to follow the salon's.
+// { slug } — their page's new address; the old one stops working.
 // { taxPayer: 'master' | 'salon' | 'both' } — who pays the taxes on their
 // visits, from visits completed now on.
 // Neither for the owner's own calendar: the owner's visits are all theirs.
@@ -299,7 +301,8 @@ salonRouter.patch('/masters/:masterId', asyncHandler(async (req, res) => {
   const rawServiceIds = req.body?.serviceIds;
   const rawShare = req.body?.sharePercent;
   const taxPayer = req.body?.taxPayer;
-  if (active === undefined && rawServiceIds === undefined && rawShare === undefined && taxPayer === undefined) {
+  const slug = req.body?.slug;
+  if (active === undefined && rawServiceIds === undefined && rawShare === undefined && taxPayer === undefined && slug === undefined) {
     return res.status(400).json({ error: 'no_fields_to_update' });
   }
   if (taxPayer !== undefined) {
@@ -321,6 +324,12 @@ salonRouter.patch('/masters/:masterId', asyncHandler(async (req, res) => {
     if (serviceIds.some((id) => !Number.isInteger(id))) {
       return res.status(400).json({ error: 'invalid_service_ids' });
     }
+  }
+
+  // A new page address first: if it's taken, nothing else changes.
+  if (slug !== undefined) {
+    const changed = await changeMasterSlug(master.id, slug);
+    if (changed.error) return res.status(changed.status).json({ error: changed.error });
   }
 
   const client = await pool.connect();

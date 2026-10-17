@@ -71,6 +71,40 @@ export default function SettingsScreen({ T, lang, account, salon, refreshAccount
     }
   }
 
+  // The page's address, changed in place: the old one stops working.
+  const [newSlug, setNewSlug] = useState(null); // null when not editing
+  async function saveSlug(e) {
+    e.preventDefault();
+    setBusy('slug');
+    try {
+      await api.changeSlug(newSlug);
+      await refreshAccount();
+      setNewSlug(null);
+      say('page', 'slugChanged');
+    } catch (err) {
+      failed('page', err);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // The login's email, behind the password.
+  const [emailForm, setEmailForm] = useState({ email: '', password: '' });
+  async function saveEmail(e) {
+    e.preventDefault();
+    setBusy('email');
+    try {
+      await api.changeEmail(emailForm.email.trim(), emailForm.password);
+      await refreshAccount();
+      setEmailForm({ email: '', password: '' });
+      say('email', 'emailChanged');
+    } catch (err) {
+      failed('email', err);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   // ---------------------------------------------------------- subscription
   const stateText = {
     trial: T.stateTrial(dateOf(access.trialEndsAt, lang)),
@@ -232,7 +266,33 @@ export default function SettingsScreen({ T, lang, account, salon, refreshAccount
           </code>
           <button className="btn-outline" onClick={copyLink}>{copied ? T.copied : T.copyLink}</button>
           <a className="btn-primary" href={master.siteUrl} target="_blank" rel="noreferrer">{T.openPage}</a>
+          {newSlug === null && !master.customDomain && (
+            <button className="btn-outline" onClick={() => setNewSlug(master.slug)}>{T.changeAddressBtn}</button>
+          )}
         </div>
+        {newSlug !== null && (
+          <form onSubmit={saveSlug} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--surface)', overflow: 'hidden', maxWidth: 360, flex: 1 }}>
+                <input
+                  className="field-input"
+                  aria-label={T.slugLabel}
+                  style={{ border: 'none', borderRadius: 0, flex: 1, minWidth: 0 }}
+                  value={newSlug}
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  autoFocus
+                  onChange={(e) => setNewSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40))}
+                />
+                <span style={{ padding: '0 10px', fontSize: 12.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>.{PLATFORM_DOMAIN}</span>
+              </div>
+              <button type="submit" className="btn-primary" disabled={busy === 'slug' || !newSlug || newSlug === master.slug}>{T.saveBtn}</button>
+              <button type="button" className="btn-outline" onClick={() => setNewSlug(null)}>{T.cancelBtn}</button>
+            </div>
+            <p style={{ ...muted, fontSize: 12.5, color: 'var(--terracotta)' }}>{T.changeAddressWarning}</p>
+          </form>
+        )}
+        {note('page')}
       </Section>
       )}
 
@@ -388,6 +448,22 @@ export default function SettingsScreen({ T, lang, account, salon, refreshAccount
         </div>
         <div><button className="btn-primary" onClick={saveRegion} disabled={busy === 'region'}>{T.saveBtn}</button></div>
         {note('region')}
+      </Section>
+
+      <Section title={T.emailSection}>
+        <p style={muted}>{T.emailCurrent(account.email)}</p>
+        <form onSubmit={saveEmail} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, alignItems: 'end' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5, color: 'var(--muted)' }}>
+            {T.newEmailLabel}
+            <input className="field-input" type="email" autoComplete="off" value={emailForm.email} onChange={(e) => setEmailForm({ ...emailForm, email: e.target.value })} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5, color: 'var(--muted)' }}>
+            {T.currentPasswordLabel}
+            <input className="field-input" type="password" autoComplete="current-password" value={emailForm.password} onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })} />
+          </label>
+          <div><button type="submit" className="btn-outline" disabled={busy === 'email' || !emailForm.email || !emailForm.password}>{T.changeEmailBtn}</button></div>
+        </form>
+        {note('email')}
       </Section>
 
       <Section title={T.passwordSection}>

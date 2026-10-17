@@ -221,7 +221,12 @@ export default function MasterDetail({ T, lang, masterId, onBack, onAuthError, a
           <Row label={T.detailRegion}>
             {master.timezone.replace(/_/g, ' ')} · {master.currency} · {master.languages.map((l) => LANG_META[l].code).join(', ')}
           </Row>
-          {master.customDomain && <Row label={T.customDomainBtn}>{master.customDomain}</Row>}
+          {master.customDomain && (
+            <Row label={T.customDomainBtn}>
+              {master.customDomain}
+              {master.customDomainStatus && ` · ${T.domainStatus[master.customDomainStatus]}`}
+            </Row>
+          )}
           <Row label="Telegram">{master.telegramConnected ? `✓ ${T.detailYes}` : T.detailNo}</Row>
         </Section>
         <Section title={T.detailProfile}>

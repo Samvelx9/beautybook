@@ -202,7 +202,7 @@ export const PLATFORM_STRINGS = {
     confirmSuspend: "Suspend this master? Their page stops taking bookings until you unsuspend it.",
     confirmDeleteAccount: 'Delete your page and all its data for good?',
     customDomainBtn: 'Domain',
-    domainPrompt: 'Custom domain, e.g. annabeauty.com (leave empty to remove):',
+    domainPrompt: 'Custom domain, e.g. annabeauty.com (leave empty to remove). Point its A record at the server; the certificate and setup follow within minutes.',
     domain_taken: 'Another master already uses this domain.',
     invalid_domain: "That doesn't look like a domain.",
     statusLabels: {
@@ -410,7 +410,7 @@ export const PLATFORM_STRINGS = {
     confirmSuspend: 'Приостановить мастера? Его страница перестанет принимать записи, пока вы её не возобновите.',
     confirmDeleteAccount: 'Удалить страницу и все её данные навсегда?',
     customDomainBtn: 'Домен',
-    domainPrompt: 'Свой домен, например annabeauty.com (пусто — убрать):',
+    domainPrompt: 'Свой домен, например annabeauty.com (пусто — убрать). Направьте его A-запись на сервер — сертификат и настройка появятся в течение нескольких минут.',
     domain_taken: 'Этот домен уже у другого мастера.',
     invalid_domain: 'Это не похоже на домен.',
     statusLabels: {
@@ -618,7 +618,7 @@ export const PLATFORM_STRINGS = {
     confirmSuspend: 'Կասեցնե՞լ վարպետին։ Նրա էջը կդադարի գրանցումներ ընդունել, մինչև չվերականգնեք։',
     confirmDeleteAccount: 'Ընդմիշտ ջնջե՞լ ձեր էջը և դրա բոլոր տվյալները։',
     customDomainBtn: 'Դոմեն',
-    domainPrompt: 'Սեփական դոմեն, օր.՝ annabeauty.com (դատարկ՝ հեռացնել)։',
+    domainPrompt: 'Սեփական դոմեն, օր.՝ annabeauty.com (դատարկ՝ հեռացնել)։ Ուղղեք դրա A գրառումը սերվերին․ վկայականն ու կարգավորումը կհայտնվեն մի քանի րոպեում։',
     domain_taken: 'Այս դոմենն արդեն այլ վարպետի մոտ է։',
     invalid_domain: 'Սա դոմենի նման չէ։',
     statusLabels: {

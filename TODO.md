@@ -14,7 +14,8 @@ Most urgent first. What's already built is in [DONE.md](DONE.md).
   - [ ] DuckDNS token (duckdns.org → recreate token), then update
         `/etc/letsencrypt/duckdns.token` — renewals fail with an old token.
   - [ ] Operator `admin` password (Platform → Settings).
-- [ ] **GitHub access token used for pushing expires on 2026-10-15** — create a new one.
+- [ ] **GitHub access token**: TODO said it expired on 2026-10-15, but pushing still worked
+      on 2026-10-17 — check its real expiry date and renew before then.
 
 ## 2. Before selling to real masters
 
@@ -50,17 +51,29 @@ Most urgent first. What's already built is in [DONE.md](DONE.md).
 
 ## 3. Product
 
-- [ ] **Custom domains for masters**: today the operator sets the domain, but DNS, the
-      certificate and an nginx server block are manual. Automate the certificate (HTTP-01
-      per domain) and the nginx config.
-- [ ] **Salons: several masters, one administrator** — the plan below, phase by phase.
-- [ ] Master can change their page address and login email.
-- [ ] Platform: delete a master (today only the master can delete their own account).
-- [ ] Export of a master's bookings and clients (CSV).
+- [x] **Custom domains for masters**, put live by a host job every two minutes
+      (`deploy/custom-domains`): once the domain's DNS points at the server it issues a
+      certificate (HTTP-01), writes `bb-domain-<domain>.conf` and reloads nginx; the
+      Platform screen shows waiting for DNS / live / conflict / failed. Links switch to the
+      domain only once it's live.
+- [x] **Salons: several masters, one administrator** — all six phases, below.
+- [x] Masters change their page address and login email (Settings); a salon's owner
+      changes a master's address on the Masters screen.
+- [x] The operator deletes an account (an individual master's, or a salon with all its
+      masters), confirmed by typing the owner's email; refused while a subscription is live.
+- [x] Bookings and clients as CSV (Bookings screen): a master's own, the owner's whole
+      salon or one master.
+- [x] Platform overview: sign-ups per week, trial → paid, monthly revenue by plan, accounts
+      by state.
 - [ ] Move Mariam's salon onto the platform as a tenant (her own domain, data migrated).
-- [ ] Platform overview: sign-ups per week, trial → paid conversion, revenue.
+      Deferred for now; `mariambeauty.skin` is already served by her own app, so the domain
+      job reports a conflict until her old config is retired.
 - [ ] Photos: stored in Postgres (fine for hundreds of masters); move to object storage
-      before that becomes thousands.
+      before that becomes thousands. Deferred until then.
+- [ ] Deleting one's own account with a live subscription leaves Lemon Squeezy charging:
+      cancel it through the API first (the operator's delete already refuses).
+- [ ] The admin app's bundle just passed 500 kB (140 kB gzipped): split the operator
+      screens into their own chunk.
 
 ## Salons
 

@@ -63,6 +63,21 @@ function query(params) {
   return s ? `?${s}` : '';
 }
 
+// A file the API makes for the logged-in user (a CSV export), saved by the
+// browser. Fetched rather than linked: the request needs the auth token.
+async function download(path, filename) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+  });
+  if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null));
+  const url = URL.createObjectURL(await res.blob());
+  const link = Object.assign(document.createElement('a'), { href: url, download: filename });
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export const api = {
   // Sign-up and login (public).
   login: (email, password) => request('/auth/login', json('POST', { email, password })),
@@ -74,6 +89,8 @@ export const api = {
   // The master's account, settings and integrations.
   getAccount: () => request('/admin/account'),
   updateSettings: (payload) => request('/admin/account/settings', json('PATCH', payload)),
+  changeSlug: (slug) => request('/admin/account/slug', json('PATCH', { slug })),
+  changeEmail: (email, password) => request('/admin/account/email', json('POST', { email, password })),
   changePassword: (currentPassword, newPassword) =>
     request('/admin/account/password', json('POST', { currentPassword, newPassword })),
   deleteAccount: (password) => request('/admin/account', json('DELETE', { password })),
@@ -148,6 +165,12 @@ export const api = {
   updateExpense: (id, payload) => request(`/admin/expenses/${id}`, json('PATCH', payload)),
   deleteExpense: (id) => request(`/admin/expenses/${id}`, { method: 'DELETE' }),
 
+  // CSV exports: a master's own, or for a salon's owner the salon's (one
+  // master with masterId).
+  exportBookings: ({ from, to, masterId } = {}) =>
+    download(`/admin/export/bookings.csv${query({ from, to, masterId })}`, `bookings-${from}-${to}.csv`),
+  exportClients: ({ masterId } = {}) => download(`/admin/export/clients.csv${query({ masterId })}`, 'clients.csv'),
+
   getFinancials: ({ from, to, masterId } = {}) => request(`/admin/financials${query({ from, to, masterId })}`),
 
   // A salon's owner: the salon and its masters.
@@ -165,9 +188,12 @@ export const api = {
   // The platform operator's screen.
   getPlatformMasters: () => request('/platform/masters'),
   getPlatformOrganizations: () => request('/platform/organizations'),
+  getPlatformOverview: () => request('/platform/overview'),
   getPlatformOrganization: (id) => request(`/platform/organizations/${id}`),
   // { suspended } or { extendTrialDays } for a whole organization.
   updatePlatformOrganization: (id, payload) => request(`/platform/organizations/${id}`, json('PATCH', payload)),
+  // Everything the organization owns; `confirm` is its owner's email.
+  deletePlatformOrganization: (id, confirm) => request(`/platform/organizations/${id}`, json('DELETE', { confirm })),
   getPlatformMaster: (id) => request(`/platform/masters/${id}`),
   getPlatformSettings: () => request('/platform/settings'),
   updatePlatformSettings: (payload) => request('/platform/settings', json('PATCH', payload)),

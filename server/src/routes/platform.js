@@ -6,6 +6,8 @@ import { asyncHandler } from '../lib/asyncHandler.js';
 import { requirePlatformAdmin } from '../middleware/auth.js';
 import {
   accessSummary,
+  deleteOrganization,
+  platformDomain,
   masterSiteUrl,
   planFor,
   MASTER_COLUMNS,
@@ -46,6 +48,7 @@ platformRouter.get('/masters', asyncHandler(async (_req, res) => {
       name: m.owner_name_hy || m.owner_name_ru || m.owner_name_en || '',
       siteUrl: masterSiteUrl(m),
       customDomain: m.custom_domain,
+      customDomainStatus: m.custom_domain_status,
       createdAt: m.created_at,
       telegramConnected: Boolean(m.telegram_chat_id),
       bookingsTotal: m.bookings_total,
@@ -57,6 +60,73 @@ platformRouter.get('/masters', asyncHandler(async (_req, res) => {
       deactivated: Boolean(m.deactivated_at),
     }))
   );
+}));
+
+// ---------------------------------------------------------------------------
+// Overview: how the platform is doing
+// ---------------------------------------------------------------------------
+
+// Sign-ups per week (the last 12, empty weeks included), where every account
+// stands now, how many finished trials turned into a subscription, and the
+// monthly revenue paying accounts bring at the advertised prices.
+platformRouter.get('/overview', asyncHandler(async (_req, res) => {
+  const settings = await getPlatformSettings();
+  const { rows: weeks } = await pool.query(
+    `WITH weeks AS (
+       SELECT generate_series(date_trunc('week', now()) - interval '11 weeks', date_trunc('week', now()), interval '1 week') AS week
+     )
+     SELECT to_char(weeks.week, 'YYYY-MM-DD') AS week,
+            COUNT(o.id) FILTER (WHERE o.kind = 'solo')::int AS individual,
+            COUNT(o.id) FILTER (WHERE o.kind = 'salon')::int AS salons
+     FROM weeks
+     LEFT JOIN organizations o ON date_trunc('week', o.created_at) = weeks.week
+     GROUP BY weeks.week
+     ORDER BY weeks.week`
+  );
+
+  const { rows } = await pool.query(`${ORGANIZATION_LIST} ORDER BY o.id`);
+  const states = { trial: 0, paying: 0, cancelled: 0, expired: 0, suspended: 0 };
+  const byPlan = {};
+  let mrrMinor = 0;
+  let trialsEnded = 0;
+  let converted = 0;
+  for (const o of rows) {
+    const { state } = accessSummary(o);
+    const paying = ['active', 'on_trial', 'past_due'].includes(state);
+    if (state === 'suspended') states.suspended += 1;
+    else if (paying) states.paying += 1;
+    else if (state === 'cancelled') states.cancelled += 1;
+    else if (state === 'trial') states.trial += 1;
+    else states.expired += 1;
+
+    if (paying) {
+      const plan = planFor(o, o.active_masters);
+      const price = planPriceMinor(settings, plan);
+      mrrMinor += price;
+      byPlan[plan] = byPlan[plan] ?? { accounts: 0, mrrMinor: 0 };
+      byPlan[plan].accounts += 1;
+      byPlan[plan].mrrMinor += price;
+    }
+    // Conversion counts only trials that are over: one still running hasn't
+    // had the chance to convert.
+    if (new Date(o.trial_ends_at) <= new Date() || o.subscription_status) {
+      trialsEnded += 1;
+      if (o.subscription_status) converted += 1;
+    }
+  }
+
+  const { rows: bookingRows } = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM bookings WHERE created_at > now() - interval '30 days'`
+  );
+
+  res.json({
+    weeks,
+    accounts: rows.length,
+    states,
+    conversion: { trialsEnded, converted, rate: trialsEnded ? converted / trialsEnded : null },
+    mrr: { minor: mrrMinor, currency: settings.priceCurrency, byPlan },
+    bookings30d: bookingRows[0].n,
+  });
 }));
 
 // ---------------------------------------------------------------------------
@@ -85,7 +155,7 @@ async function shapeOrganization(o, settings) {
     siteUrl = o.slug ? masterSiteUrl(o) : null;
   } else if (o.first_master_id) {
     const { rows } = await pool.query(
-      `SELECT m.slug, m.custom_domain, p.owner_name_ru, p.owner_name_en, p.owner_name_hy
+      `SELECT m.slug, m.custom_domain, m.custom_domain_status, p.owner_name_ru, p.owner_name_en, p.owner_name_hy
        FROM masters m LEFT JOIN salon_profile p ON p.master_id = m.id WHERE m.id = $1`,
       [o.first_master_id]
     );
@@ -134,7 +204,7 @@ platformRouter.get('/organizations/:id', asyncHandler(async (req, res) => {
     [id]
   );
   const { rows: masters } = await pool.query(
-    `SELECT m.id, m.slug, m.custom_domain, m.deactivated_at, m.telegram_chat_id, m.created_at,
+    `SELECT m.id, m.slug, m.custom_domain, m.custom_domain_status, m.deactivated_at, m.telegram_chat_id, m.created_at,
             p.owner_name_ru, p.owner_name_en, p.owner_name_hy, u.email, u.role,
             COUNT(b.id) FILTER (WHERE b.status <> 'cancelled')::int AS bookings,
             COUNT(b.id) FILTER (WHERE b.created_at > now() - interval '30 days')::int AS bookings_30d,
@@ -179,6 +249,34 @@ platformRouter.get('/organizations/:id', asyncHandler(async (req, res) => {
   });
 }));
 
+// Deletes an organization and everything it owns — an individual master's
+// account, or a salon with all its masters, their logins, bookings and price
+// list. Confirmed by typing the owner's email. Refused while a subscription
+// is live: Lemon Squeezy would go on charging a card for an account that no
+// longer exists, so it's cancelled there first.
+platformRouter.delete('/organizations/:id', asyncHandler(async (req, res) => {
+  const id = idParam(req);
+  if (id === null) return res.status(400).json({ error: 'invalid_organization_id' });
+  const { rows } = await pool.query(
+    `SELECT o.subscription_status, o.period_ends_at,
+            (SELECT u.email FROM users u WHERE u.organization_id = o.id AND u.role = 'owner' ORDER BY u.id LIMIT 1) AS owner_email
+     FROM organizations o WHERE o.id = $1`,
+    [id]
+  );
+  const o = rows[0];
+  if (!o) return res.status(404).json({ error: 'organization_not_found' });
+  const confirm = String(req.body?.confirm ?? '').trim().toLowerCase();
+  if (!o.owner_email || confirm !== o.owner_email.toLowerCase()) {
+    return res.status(400).json({ error: 'confirmation_mismatch' });
+  }
+  const paidUntil = o.subscription_status === 'cancelled' && o.period_ends_at && new Date(o.period_ends_at) > new Date();
+  if (['active', 'on_trial', 'past_due', 'paused'].includes(o.subscription_status) || paidUntil) {
+    return res.status(409).json({ error: 'subscription_live' });
+  }
+  await deleteOrganization(id);
+  res.status(204).end();
+}));
+
 // { suspended: bool } | { extendTrialDays: n } — for the whole organization:
 // a salon's every master at once.
 platformRouter.patch('/organizations/:id', asyncHandler(async (req, res) => {
@@ -221,6 +319,17 @@ platformRouter.patch('/settings', asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
+// A domain someone could own: labels of letters, digits and inner hyphens,
+// a top-level part of letters, 253 characters at most — and not the
+// platform's own domain or one under it, which already serve the platform.
+// The server's domain script checks the same before using it.
+function isCustomDomain(domain) {
+  const label = '[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?';
+  if (domain.length > 253 || !new RegExp(`^(${label}\\.)+[a-z]{2,63}$`).test(domain)) return false;
+  const platform = platformDomain();
+  return domain !== platform && !domain.endsWith(`.${platform}`);
+}
+
 const idParam = (req) => {
   const id = Number(req.params.id);
   return Number.isInteger(id) ? id : null;
@@ -258,10 +367,14 @@ platformRouter.patch('/masters/:id', asyncHandler(async (req, res) => {
     const domain = req.body.customDomain
       ? String(req.body.customDomain).trim().toLowerCase().replace(/^www\./, '')
       : null;
-    if (domain && !/^([a-z0-9-]+\.)+[a-z]{2,}$/.test(domain)) {
+    if (domain && !isCustomDomain(domain)) {
       return res.status(400).json({ error: 'invalid_domain' });
     }
     set(master, 'custom_domain = ?', domain);
+    // The server puts a new domain live by itself (deploy/custom-domains) and
+    // records how that goes; a removed one is taken down the same way.
+    master.fields.push(domain ? "custom_domain_status = 'pending'" : 'custom_domain_status = NULL');
+    master.fields.push('custom_domain_attempts = 0', 'custom_domain_checked_at = NULL');
   }
   if (org.fields.length === 0 && master.fields.length === 0) {
     return res.status(400).json({ error: 'no_fields_to_update' });
@@ -426,6 +539,7 @@ platformRouter.get('/masters/:id', asyncHandler(async (req, res) => {
       names: { en: m.owner_name_en, ru: m.owner_name_ru, hy: m.owner_name_hy },
       siteUrl: masterSiteUrl(m),
       customDomain: m.custom_domain,
+      customDomainStatus: m.custom_domain_status,
       timezone: m.timezone,
       currency: m.currency,
       languages: m.languages,

@@ -15,12 +15,14 @@ import {
   newConnectToken,
   offerByAllMasters,
   setOrganizationLocale,
+  changeMasterSlug,
 } from '../services/masters.js';
 import { getBotUsername, telegramToken } from '../services/telegram.js';
 import { billingConfig, createCheckout } from '../services/billing.js';
 import { applyTemplate, TEMPLATES } from '../services/templates.js';
-import { readCurrency, readLanguages } from './auth.js';
+import { EMAIL_PATTERN, readCurrency, readLanguages } from './auth.js';
 import { changeOwnPassword } from '../services/accounts.js';
+import { sendCsv } from '../lib/csv.js';
 import { calendarRouter } from './calendar.js';
 
 // The admin panel of one login: an organization's owner, or one of a salon's
@@ -190,6 +192,33 @@ adminRouter.patch('/account/settings', asyncHandler(async (req, res) => {
   } finally {
     client.release();
   }
+  res.json(await accountBody(req));
+}));
+
+// The login's email. Asks for the password again: the email is what signs in.
+adminRouter.post('/account/email', asyncHandler(async (req, res) => {
+  const email = cleanString(req.body?.email, 200).toLowerCase();
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (!EMAIL_PATTERN.test(email)) return res.status(400).json({ error: 'invalid_email' });
+  const { rows } = await pool.query('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
+  if (!rows[0] || !(await bcrypt.compare(password, rows[0].password_hash))) {
+    return res.status(403).json({ error: 'wrong_password' });
+  }
+  try {
+    await pool.query('UPDATE users SET email = $2 WHERE id = $1', [req.user.id, email]);
+  } catch (err) {
+    if (err.code === UNIQUE_VIOLATION) return res.status(409).json({ error: 'email_taken' });
+    throw err;
+  }
+  req.user.email = email;
+  res.json(await accountBody(req));
+}));
+
+// The login's own page address. The old one stops working at once — links
+// already shared, and those in guests' Telegram messages, with it.
+adminRouter.patch('/account/slug', requireCalendar, asyncHandler(async (req, res) => {
+  const result = await changeMasterSlug(req.master.id, req.body?.slug);
+  if (result.error) return res.status(result.status).json({ error: result.error });
   res.json(await accountBody(req));
 }));
 
@@ -743,6 +772,98 @@ adminRouter.delete('/expenses/:id', asyncHandler(async (req, res) => {
   ]);
   if (rowCount === 0) return res.status(404).json({ error: 'expense_not_found' });
   res.status(204).end();
+}));
+
+// ---------------------------------------------------------------------------
+// Export: bookings and clients as CSV
+// ---------------------------------------------------------------------------
+
+// Whose records an export covers: a salon's master their own; the owner the
+// whole organization, or one master with ?masterId. Returns the SQL condition
+// on `b` and its parameters (starting at $1), or { error }.
+function exportScope(req) {
+  if (req.user.role !== 'owner') {
+    if (!req.master) return { error: 'no_master' };
+    return { where: 'b.master_id = $1', params: [req.master.id] };
+  }
+  if (req.query.masterId !== undefined) {
+    const masterId = Number(req.query.masterId);
+    if (!Number.isInteger(masterId)) return { error: 'invalid_master_id' };
+    return { where: 'b.organization_id = $1 AND b.master_id = $2', params: [req.organization.id, masterId] };
+  }
+  return { where: 'b.organization_id = $1', params: [req.organization.id] };
+}
+
+// GET /api/admin/export/bookings.csv?from&to — every booking in the period
+// (the organization's local dates), in time order.
+adminRouter.get('/export/bookings.csv', asyncHandler(async (req, res) => {
+  const scope = exportScope(req);
+  if (scope.error) return res.status(400).json({ error: scope.error });
+  const tz = req.organization.timezone;
+  const today = todayDateStr(tz);
+  const from = isValidDate(req.query.from) ? req.query.from : addDaysToDateStr(today, -365);
+  const to = isValidDate(req.query.to) ? req.query.to : addDaysToDateStr(today, 365);
+  const n = scope.params.length;
+
+  const { rows } = await pool.query(
+    `SELECT to_char(b.start_time AT TIME ZONE $${n + 3}, 'YYYY-MM-DD') AS date,
+            to_char(b.start_time AT TIME ZONE $${n + 3}, 'HH24:MI') AS start,
+            to_char(b.end_time AT TIME ZONE $${n + 3}, 'HH24:MI') AS finish,
+            COALESCE(NULLIF(p.owner_name_hy, ''), NULLIF(p.owner_name_ru, ''), NULLIF(p.owner_name_en, ''), m.slug) AS master,
+            b.customer_name, b.customer_phone,
+            (SELECT string_agg(COALESCE(NULLIF(s.name_hy, ''), NULLIF(s.name_ru, ''), s.name_en), ' + ' ORDER BY i.sort_order, i.id)
+               FROM booking_items i JOIN services s ON s.id = i.service_id WHERE i.booking_id = b.id) AS services,
+            b.price_at_booking, b.status,
+            to_char(b.created_at AT TIME ZONE $${n + 3}, 'YYYY-MM-DD HH24:MI') AS created
+     FROM bookings b
+     JOIN masters m ON m.id = b.master_id
+     LEFT JOIN salon_profile p ON p.master_id = m.id
+     WHERE ${scope.where}
+       AND (b.start_time AT TIME ZONE $${n + 3})::date BETWEEN $${n + 1} AND $${n + 2}
+     ORDER BY b.start_time, b.id`,
+    [...scope.params, from, to, tz]
+  );
+  sendCsv(
+    res,
+    `bookings-${from}-${to}.csv`,
+    ['date', 'start', 'end', 'master', 'client', 'phone', 'services', 'price', 'currency', 'status', 'booked at'],
+    rows.map((r) => [
+      r.date, r.start, r.finish, r.master, r.customer_name, r.customer_phone, r.services,
+      r.price_at_booking, req.organization.currency, r.status, r.created,
+    ])
+  );
+}));
+
+// GET /api/admin/export/clients.csv — everyone who has booked, told apart by
+// phone number: their latest name, how often they came, and what they spent.
+adminRouter.get('/export/clients.csv', asyncHandler(async (req, res) => {
+  const scope = exportScope(req);
+  if (scope.error) return res.status(400).json({ error: scope.error });
+  const n = scope.params.length;
+  const { rows } = await pool.query(
+    `SELECT b.customer_phone AS phone,
+            (array_agg(b.customer_name ORDER BY b.start_time DESC))[1] AS name,
+            COUNT(*) FILTER (WHERE b.status <> 'cancelled')::int AS bookings,
+            COUNT(*) FILTER (WHERE b.status = 'completed')::int AS visits,
+            COUNT(*) FILTER (WHERE b.status = 'no_show')::int AS no_shows,
+            to_char(MIN(b.start_time) FILTER (WHERE b.status = 'completed') AT TIME ZONE $${n + 1}, 'YYYY-MM-DD') AS first_visit,
+            to_char(MAX(b.start_time) FILTER (WHERE b.status = 'completed') AT TIME ZONE $${n + 1}, 'YYYY-MM-DD') AS last_visit,
+            COALESCE(SUM(b.price_at_booking) FILTER (WHERE b.status = 'completed'), 0)::bigint AS spent
+     FROM bookings b
+     WHERE ${scope.where}
+     GROUP BY b.customer_phone
+     ORDER BY MAX(b.start_time) DESC`,
+    [...scope.params, req.organization.timezone]
+  );
+  sendCsv(
+    res,
+    'clients.csv',
+    ['phone', 'name', 'bookings', 'visits', 'no-shows', 'first visit', 'last visit', 'spent', 'currency'],
+    rows.map((r) => [
+      r.phone, r.name, r.bookings, r.visits, r.no_shows, r.first_visit, r.last_visit, Number(r.spent),
+      req.organization.currency,
+    ])
+  );
 }));
 
 // ---------------------------------------------------------------------------

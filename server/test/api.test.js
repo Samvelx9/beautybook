@@ -491,6 +491,16 @@ test('platform screens are for the platform admin only', async () => {
   const viaDomain = await call('GET', '/site', { headers: { 'X-Forwarded-Host': 'www.bella-beauty.com' } });
   assert.equal(viaDomain.body.slug, 'bella');
 
+  // Links keep to the platform address until the server has put the domain live.
+  const bellaRow = async () => (await call('GET', '/platform/masters', { token: tokenA })).body.find((m) => m.slug === 'bella');
+  assert.deepEqual([(await bellaRow()).customDomainStatus, (await bellaRow()).siteUrl], ['pending', `https://bella.${DOMAIN}`]);
+  await db.query(`UPDATE masters SET custom_domain_status = 'active' WHERE slug = 'bella'`);
+  assert.equal((await bellaRow()).siteUrl, 'https://bella-beauty.com');
+  for (const bad of ['not a domain', 'x.' + DOMAIN, DOMAIN, '-bad.com', 'a'.repeat(64) + '.com']) {
+    const refused = await call('PATCH', `/platform/masters/${bella.id}`, { token: tokenA, body: { customDomain: bad } });
+    assert.equal(refused.body.error, 'invalid_domain', bad);
+  }
+
   const reset = await call('POST', `/platform/masters/${bella.id}/reset-password`, { token: tokenA });
   assert.equal(reset.status, 200);
   // The old session ended with the reset; the new password works.
@@ -800,8 +810,14 @@ async function signupSalon(name, extra = {}) {
   return res.body.token;
 }
 
-const login = async (email, password) =>
-  (await call('POST', '/auth/login', { body: { email, password } })).body.token;
+// Logins are rate limited per address (20 in 15 minutes); the tests log in
+// more often than that, each from its own.
+let loginAddress = 0;
+const login = async (email, password) => {
+  loginAddress += 1;
+  const headers = { 'X-Real-IP': `203.0.113.${loginAddress}` };
+  return (await call('POST', '/auth/login', { headers, body: { email, password } })).body.token;
+};
 
 const salon = {};
 
@@ -1423,4 +1439,130 @@ test('Armenian is the default language', async () => {
       WHERE column_name = 'notify_lang' AND table_name IN ('masters', 'organizations')`
   );
   assert.deepEqual(rows.map((r) => r.column_default), ["'hy'::text", "'hy'::text"]);
+});
+
+test('a master changes their page address and login email', async () => {
+  const res = await call('POST', '/auth/signup', {
+    headers: { 'X-Real-IP': '198.51.100.10' },
+    body: { email: 'mover@example.com', password: 'correct horse battery', slug: 'mover-old', displayName: 'Mover' },
+  });
+  const token = res.body.token;
+  const moved = await call('PATCH', '/admin/account/slug', { token, body: { slug: 'mover-new' } });
+  assert.equal(moved.status, 200, JSON.stringify(moved.body));
+  assert.equal(moved.body.master.slug, 'mover-new');
+  assert.equal((await call('GET', '/site', { slug: 'mover-old' })).status, 404);
+  assert.equal((await call('GET', '/site', { slug: 'mover-new' })).status, 200);
+  // Taken by a master or a salon, or not an address at all.
+  assert.equal((await call('PATCH', '/admin/account/slug', { token, body: { slug: 'bella' } })).body.error, 'slug_taken');
+  assert.equal((await call('PATCH', '/admin/account/slug', { token, body: { slug: 'tulip-salon' } })).body.error, 'slug_taken');
+  assert.equal((await call('PATCH', '/admin/account/slug', { token, body: { slug: 'www' } })).body.error, 'slug_reserved');
+
+  const wrong = await call('POST', '/admin/account/email', { token, body: { email: 'mover2@example.com', password: 'nope' } });
+  assert.equal(wrong.body.error, 'wrong_password');
+  assert.equal(
+    (await call('POST', '/admin/account/email', { token, body: { email: 'bella@example.com', password: 'correct horse battery' } })).body.error,
+    'email_taken'
+  );
+  const changed = await call('POST', '/admin/account/email', { token, body: { email: 'Mover2@Example.com', password: 'correct horse battery' } });
+  assert.equal(changed.body.email, 'mover2@example.com');
+  assert.ok(await login('mover2@example.com', 'correct horse battery'));
+  assert.equal((await call('POST', '/auth/login', { body: { email: 'mover@example.com', password: 'correct horse battery' } })).status, 401);
+});
+
+test("a salon's owner changes a master's page address", async () => {
+  const owner = await login('tulip@salon.example', 'correct horse battery');
+  const { rows } = await db.query(`SELECT id FROM masters WHERE slug = 'tulip-y'`);
+  const moved = await call('PATCH', `/salon/masters/${rows[0].id}`, { token: owner, body: { slug: 'tulip-yana' } });
+  assert.equal(moved.body.slug, 'tulip-yana');
+  assert.equal((await call('GET', '/site', { slug: 'tulip-yana' })).status, 200);
+  assert.equal((await call('PATCH', `/salon/masters/${rows[0].id}`, { token: owner, body: { slug: 'tulip-x' } })).body.error, 'slug_taken');
+});
+
+test('the operator deletes an account, confirmed by the owner email, never with a live subscription', async () => {
+  const operator = await login('operator', 'operator password 2');
+  const res = await call('POST', '/auth/signup', {
+    headers: { 'X-Real-IP': '198.51.100.11' },
+    body: {
+      accountType: 'salon', salonName: 'Gone', salonSlug: 'gone-salon',
+      email: 'gone-owner@salon.example', password: 'correct horse battery',
+    },
+  });
+  const owner = res.body.token;
+  await call('POST', '/salon/masters', { token: owner, body: { slug: 'gone-m', displayName: 'M', email: 'gone-m@salon.example' } });
+  const { rows } = await db.query(`SELECT id FROM organizations WHERE slug = 'gone-salon'`);
+  const id = rows[0].id;
+
+  assert.equal((await call('DELETE', `/platform/organizations/${id}`, { token: owner, body: { confirm: 'gone-owner@salon.example' } })).status, 403);
+  assert.equal((await call('DELETE', `/platform/organizations/${id}`, { token: operator, body: { confirm: 'someone@else' } })).body.error, 'confirmation_mismatch');
+
+  await db.query(`UPDATE organizations SET subscription_status = 'active' WHERE id = $1`, [id]);
+  assert.equal((await call('DELETE', `/platform/organizations/${id}`, { token: operator, body: { confirm: 'gone-owner@salon.example' } })).body.error, 'subscription_live');
+  await db.query(`UPDATE organizations SET subscription_status = 'expired' WHERE id = $1`, [id]);
+
+  const gone = await call('DELETE', `/platform/organizations/${id}`, { token: operator, body: { confirm: 'GONE-OWNER@salon.example' } });
+  assert.equal(gone.status, 204);
+  assert.equal((await call('GET', '/site', { slug: 'gone-salon' })).status, 404);
+  assert.equal((await call('GET', '/site', { slug: 'gone-m' })).status, 404);
+  const { rows: left } = await db.query(
+    `SELECT COUNT(*)::int AS n FROM users WHERE email IN ('gone-owner@salon.example', 'gone-m@salon.example')`
+  );
+  assert.equal(left[0].n, 0);
+});
+
+test('bookings and clients export as CSV: a master their own, the owner the salon', async () => {
+  const owner = await login('tulip@salon.example', 'correct horse battery');
+  const raw = async (url, token) => {
+    const res = await fetch(`${BASE}${url}`, { headers: { Authorization: `Bearer ${token}` } });
+    const bytes = Buffer.from(await res.arrayBuffer());
+    // .text() would drop the byte-order mark; the bytes keep it.
+    return { status: res.status, type: res.headers.get('content-type'), bom: bytes.subarray(0, 3).toString('hex'), text: bytes.toString('utf8').replace(/^\uFEFF/, '') };
+  };
+  const all = await raw(`/admin/export/bookings.csv?from=${date}&to=${date}`, owner);
+  assert.equal(all.status, 200);
+  assert.match(all.type, /text\/csv/);
+  assert.equal(all.bom, 'efbbbf');
+  assert.ok(all.text.startsWith('date,start,end,master,client,phone'));
+  const lines = all.text.trim().split('\r\n');
+  assert.ok(lines.length >= 4, all.text);
+  assert.ok(all.text.includes('Tulip x') && all.text.includes('Tulip y'));
+
+  const { rows } = await db.query(`SELECT id FROM masters WHERE slug = 'tulip-x'`);
+  const onlyX = await raw(`/admin/export/bookings.csv?from=${date}&to=${date}&masterId=${rows[0].id}`, owner);
+  assert.ok(onlyX.text.includes('Tulip x') && !onlyX.text.includes('Tulip y'));
+
+  const clients = await raw('/admin/export/clients.csv', owner);
+  assert.ok(clients.text.includes('+37499000001'));
+  assert.ok(clients.text.split('\r\n')[0].endsWith('spent,currency'));
+
+  // Another salon's owner exports only theirs.
+  const iris = await login('iris@salon.example', 'correct horse battery');
+  assert.ok(!(await raw('/admin/export/clients.csv', iris)).text.includes('+37499000001'));
+});
+
+test('a CSV field that looks like a formula stays text', async () => {
+  const { toCsv } = await import('../src/lib/csv.js');
+  assert.equal(toCsv(['a', 'b'], [['=1+1', 'say "hi", ok']]), '﻿a,b\r\n\'=1+1,"say ""hi"", ok"\r\n');
+});
+
+test('the operator overview: sign-ups per week, states, conversion and revenue', async () => {
+  const operator = await login('operator', 'operator password 2');
+  assert.equal((await call('GET', '/platform/overview', { token: tokenB })).status, 403);
+  const overview = await call('GET', '/platform/overview', { token: operator });
+  assert.equal(overview.status, 200, JSON.stringify(overview.body));
+  const o = overview.body;
+  assert.equal(o.weeks.length, 12);
+  const thisWeek = o.weeks.at(-1);
+  const { rows } = await db.query(
+    `SELECT COUNT(*) FILTER (WHERE kind = 'solo')::int AS solo, COUNT(*) FILTER (WHERE kind = 'salon')::int AS salon,
+            COUNT(*)::int AS total FROM organizations WHERE created_at >= date_trunc('week', now())`
+  );
+  assert.deepEqual([thisWeek.individual, thisWeek.salons], [rows[0].solo, rows[0].salon]);
+  const { rows: all } = await db.query('SELECT COUNT(*)::int AS n FROM organizations');
+  assert.equal(o.accounts, all[0].n);
+  assert.equal(Object.values(o.states).reduce((a, b) => a + b, 0), o.accounts);
+  // Plum's salon subscribed (phase 5 test) and is paying on the 5-master plan.
+  assert.ok(o.states.paying >= 1);
+  assert.ok(o.mrr.byPlan.salon_5.accounts >= 1);
+  assert.equal(o.mrr.minor, Object.values(o.mrr.byPlan).reduce((sum, p) => sum + p.mrrMinor, 0));
+  assert.ok(o.conversion.converted >= 1 && o.conversion.converted <= o.conversion.trialsEnded);
 });

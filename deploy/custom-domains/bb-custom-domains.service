@@ -1,0 +1,8 @@
+[Unit]
+Description=Put masters' own domains live (certificate + nginx)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/bb-custom-domains

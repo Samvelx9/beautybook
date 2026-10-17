@@ -7,7 +7,7 @@ import { pool } from '../db.js';
 // masters) and comes along under its own column names, so a master row is
 // still all hasAccess() needs. Select them FROM MASTER_FROM.
 export const MASTER_COLUMNS = `m.id, m.organization_id, o.kind AS organization_kind, m.slug,
-  m.custom_domain, m.timezone, m.currency, m.languages, m.default_lang, m.notify_lang,
+  m.custom_domain, m.custom_domain_status, m.timezone, m.currency, m.languages, m.default_lang, m.notify_lang,
   m.telegram_chat_id, o.trial_ends_at, o.subscription_status, o.period_ends_at,
   o.customer_portal_url, o.suspended_at, m.min_notice_minutes, m.booking_window_days,
   m.deactivated_at, o.telegram_chat_id AS organization_chat_id,
@@ -42,15 +42,33 @@ export function platformDomain() {
 }
 
 // The page a master's guests book on — or, given an organization, the salon's
-// page. Both live at <slug>.<platform domain>.
+// page. Both live at <slug>.<platform domain>; a master's own domain takes
+// over once it's live (custom_domain_status 'active' — a row read without the
+// status keeps to the platform address, which always works).
 export function masterSiteUrl(page) {
-  if (page.custom_domain) return `https://${page.custom_domain}`;
+  if (page.custom_domain && page.custom_domain_status === 'active') return `https://${page.custom_domain}`;
   const domain = platformDomain();
   // A dev machine serves the guest app on Vite's port with *.localhost names.
   if (domain === 'localhost') {
     return `http://${page.slug}.localhost:${process.env.GUEST_DEV_PORT ?? 5173}`;
   }
   return `https://${page.slug}.${domain}`;
+}
+
+// A master's new page address: valid, not reserved, and free across masters
+// and salons (a unique violation or the namespace trigger, either way
+// slug_taken). Returns {} or { status, error }.
+export async function changeMasterSlug(masterId, rawSlug) {
+  const slug = String(rawSlug ?? '').trim().toLowerCase();
+  const problem = slugProblem(slug);
+  if (problem) return { status: 400, error: problem };
+  try {
+    await pool.query('UPDATE masters SET slug = $2 WHERE id = $1', [masterId, slug]);
+  } catch (err) {
+    if (err.code === '23505') return { status: 409, error: 'slug_taken' };
+    throw err;
+  }
+  return {};
 }
 
 // Whether a page address is free: neither a master's nor a salon's.

@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { formatDate, formatPlatformPrice } from '../i18n.js';
+import DeleteOrganizationCard from './DeleteOrganizationCard.jsx';
 
 const muted = { fontSize: 12.5, color: 'var(--muted)' };
 
 // One salon on the operator's Platform screen: its standing, plan and
 // subscription, its owner, and each of its masters' activity — counts and
 // totals only, never a client. A master opens their own detail page.
-export default function OrganizationDetail({ T, lang, organizationId, onBack, onOpenMaster, onAuthError, actions }) {
+export default function OrganizationDetail({ T, lang, organizationId, onBack, onOpenMaster, onAuthError, actions, onDeleted }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(false);
 
@@ -82,6 +83,8 @@ export default function OrganizationDetail({ T, lang, organizationId, onBack, on
           </div>
         ))}
       </section>
+
+      <DeleteOrganizationCard T={T} organization={o} onDeleted={onDeleted} onAuthError={onAuthError} />
     </div>
   );
 }

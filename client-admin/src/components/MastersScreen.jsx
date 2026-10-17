@@ -227,6 +227,8 @@ function MasterCard({ T, lang, master, categories, services, onChanged, onError 
   const [chosen, setChosen] = useState(() => new Set(master.serviceIds));
   // The share being typed, while it's being changed.
   const [shareDraft, setShareDraft] = useState(null);
+  // A new page address being typed, while it's being changed.
+  const [slugDraft, setSlugDraft] = useState(null);
   const [busy, setBusy] = useState(false);
 
   async function act(fn) {
@@ -255,6 +257,11 @@ function MasterCard({ T, lang, master, categories, services, onChanged, onError 
     await onChanged();
   });
 
+  const saveSlug = () => act(async () => {
+    await api.updateMaster(master.id, { slug: slugDraft });
+    setSlugDraft(null);
+    await onChanged();
+  });
   const saveShare = (sharePercent) => act(async () => {
     await api.updateMaster(master.id, { sharePercent });
     setShareDraft(null);
@@ -281,9 +288,32 @@ function MasterCard({ T, lang, master, categories, services, onChanged, onError 
             {master.isOwner && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--sage)' }}> · {T.pickerYou}</span>}
             {!master.active && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--terracotta)' }}> · {T.masterInactive}</span>}
           </span>
-          <a href={master.siteUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, wordBreak: 'break-all' }}>
-            {master.siteUrl.replace(/^https?:\/\//, '')} ↗
-          </a>
+          {slugDraft === null ? (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <a href={master.siteUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, wordBreak: 'break-all' }}>
+                {master.siteUrl.replace(/^https?:\/\//, '')} ↗
+              </a>
+              <button onClick={() => setSlugDraft(master.slug)} style={{ fontSize: 12, fontWeight: 600, color: 'var(--sage)' }}>
+                {T.changeAddressBtn}
+              </button>
+            </span>
+          ) : (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <input
+                className="field-input"
+                aria-label={T.slugLabel}
+                style={{ width: 180, padding: '4px 8px' }}
+                value={slugDraft}
+                autoCapitalize="none"
+                spellCheck={false}
+                onChange={(e) => setSlugDraft(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40))}
+              />
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>.{PLATFORM_DOMAIN}</span>
+              <button className="btn-primary" onClick={saveSlug} disabled={busy || !slugDraft || slugDraft === master.slug}>{T.saveBtn}</button>
+              <button className="btn-outline" onClick={() => setSlugDraft(null)} disabled={busy}>{T.cancelBtn}</button>
+              <span style={{ fontSize: 12, color: 'var(--terracotta)', flexBasis: '100%' }}>{T.changeAddressWarning}</span>
+            </span>
+          )}
           <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
             {master.email}
             {' · '}

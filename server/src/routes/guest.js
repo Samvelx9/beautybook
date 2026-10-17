@@ -624,7 +624,7 @@ salonPage.use((req, res, next) => (req.salon && !req.master ? next() : next('rou
 // The salon's working masters, with what the page shows of each.
 async function salonMasters(salon) {
   const { rows } = await pool.query(
-    `SELECT m.id, m.slug, m.custom_domain, m.min_notice_minutes, m.booking_window_days,
+    `SELECT m.id, m.slug, m.custom_domain, m.custom_domain_status, m.min_notice_minutes, m.booking_window_days,
             p.owner_name_en, p.owner_name_ru, p.owner_name_hy, p.photo_updated_at
      FROM masters m
      LEFT JOIN salon_profile p ON p.master_id = m.id

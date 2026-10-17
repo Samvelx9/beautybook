@@ -332,6 +332,19 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
 
   const periodLabel = view === 'year' ? String(year) : `${MONTH_FULL[lang][month - 1]} ${year}`;
 
+  // The bookings in the period on screen, and everyone who's booked, as CSV:
+  // the master picked above, or every master's with "All masters".
+  const exportScope = calendarMaster ? { masterId: calendarMaster.id } : {};
+  async function exportFile(kind) {
+    setError(null);
+    try {
+      if (kind === 'bookings') await api.exportBookings({ from: range.from, to: range.to, ...exportScope });
+      else await api.exportClients(exportScope);
+    } catch (err) {
+      if (!onAuthError(err)) setError('genericError');
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
@@ -381,6 +394,11 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
             {T.addBookingBtn}
           </button>
         </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <button className="btn-outline" onClick={() => exportFile('bookings')}>⤓ {T.exportBookingsBtn}</button>
+        <button className="btn-outline" onClick={() => exportFile('clients')}>⤓ {T.exportClientsBtn}</button>
       </div>
 
       {error && <p style={{ margin: 0, fontSize: 13, color: 'var(--terracotta)' }}>{T[error]}</p>}
