@@ -48,9 +48,36 @@ async function connectMaster(message, token) {
   });
 }
 
+async function salonByChat(chatId) {
+  const { rows } = await pool.query(
+    `SELECT name, notify_lang FROM organizations WHERE kind = 'salon' AND telegram_chat_id = $1`,
+    [chatId]
+  );
+  return rows[0] ?? null;
+}
+
+// "/start o_<token>" from a salon owner's "Connect Telegram" link: this chat
+// hears about every booking in the salon.
+async function connectSalon(message, token) {
+  const chatId = message.chat.id;
+  const { rows } = await pool.query(
+    `UPDATE organizations SET telegram_chat_id = $2, telegram_connect_token = NULL
+      WHERE telegram_connect_token = $1
+      RETURNING name, notify_lang`,
+    [token, chatId]
+  );
+  const salon = rows[0];
+  const T = masterText(salon ?? { notify_lang: 'ru' });
+  await callTelegram('sendMessage', {
+    chat_id: chatId,
+    text: salon ? T.salonConnected(salon.name) : T.connectExpired,
+  });
+}
+
 // Everything Telegram sends the platform bot arrives here:
 //
 // - "/start m_<token>": a master connecting their chat (above);
+// - "/start o_<token>": a salon owner connecting the salon's chat (above);
 // - "/start <guest token>" or anything else a guest types — see
 //   services/guestNotifications.js;
 // - a button on a guest's reminder (callback data "g:…") — same file;
@@ -75,6 +102,10 @@ telegramRouter.post('/webhook', asyncHandler(async (req, res) => {
       await connectMaster(incoming, param);
       return res.sendStatus(200);
     }
+    if (command === '/start' && param?.startsWith('o_')) {
+      await connectSalon(incoming, param);
+      return res.sendStatus(200);
+    }
 
     // A master's own chat: only a guest-style "/start <token>" means anything
     // (they may well try a guest link themselves); anything else gets a note
@@ -85,6 +116,15 @@ telegramRouter.post('/webhook', asyncHandler(async (req, res) => {
         chat_id: incoming.chat.id,
         text: masterText(master).masterHelp(masterSiteUrl(master)),
         disable_web_page_preview: true,
+      });
+      return res.sendStatus(200);
+    }
+
+    const salon = !master && !(command === '/start' && param) && (await salonByChat(incoming.chat.id));
+    if (salon) {
+      await callTelegram('sendMessage', {
+        chat_id: incoming.chat.id,
+        text: masterText(salon).salonHelp(salon.name),
       });
       return res.sendStatus(200);
     }

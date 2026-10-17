@@ -68,19 +68,26 @@ individual masters keep the current price.
       zones point at it, with composite foreign keys keeping a booking inside its
       organization's price list. Every existing master became a solo organization
       with the same id. No change in behaviour.
-- [ ] **Phase 2 — salon backend.**
-  - [ ] Which services each master performs (`master_services`); "any master"
-        depends on it.
-  - [ ] Owner routes `/api/salon/masters/:masterId/...` reusing the admin
-        handlers (bookings, hours, blocks, profile) after checking the master is
-        in the owner's organization; a combined bookings view across masters.
-  - [ ] Add / deactivate a master, reset their password (temporary password shown
-        once, like the operator's reset); the owner can give themselves a calendar.
-  - [ ] Salon masters: the price list is read-only, no billing, no account deletion.
-  - [ ] Expenses and financials at salon level (per master as a filter).
-  - [ ] Owner's own Telegram chat, notified of every booking in the salon.
+- [x] **Phase 2 — salon backend.** `/api/salon` (owner only): the salon and its
+      plan tier, add a master (one-time password shown once) or give the owner a
+      calendar, deactivate / reactivate, who performs which services
+      (`master_services`; a master's page offers only theirs), reset a master's
+      password, all masters' bookings in one list, the owner's Telegram chat (every
+      booking, with the master's name), and every master's calendar through the
+      same routes a master uses (`routes/calendar.js`). The owner can hand a
+      booking to another master. Locale (timezone, currency, languages) is the
+      salon's; expenses are the organization's; financials are salon-wide for the
+      owner (per master with `?masterId`) and own visits for a master. Sign-up
+      takes `accountType: "salon"` (no screen yet).
+  - [ ] Tell a master on Telegram when the owner adds, moves or cancels their
+        visits, and both masters when a visit is handed over.
+  - [ ] Deactivating a master leaves their future visits in place: offer to hand
+        them to someone else or cancel them.
+  - [ ] Turning a solo account into a salon (today a salon is chosen at sign-up).
 - [ ] **Phase 3 — sign-up and admin UI.** Sign-up asks "individual master or
-      salon"; salon screens: Masters, all-masters Bookings (filter / a column per
+      salon"; the admin panel copes with an owner who has no calendar
+      (`account.master` is null) and with a salon's master (no price-list editing,
+      expenses or billing); salon screens: Masters, all-masters Bookings (filter / a column per
       master), salon profile, price list with who-does-what.
 - [ ] **Phase 4 — guest side.** A salon page at `<salon slug>.<domain>`: services →
       "any master" or a chosen one → slots. "Any" shows the union of the

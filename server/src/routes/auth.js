@@ -7,7 +7,12 @@ import { rateLimit } from '../lib/rateLimit.js';
 import { isValidTimeZone, DEFAULT_TIMEZONE } from '../lib/time.js';
 import { signToken } from '../middleware/auth.js';
 import { MIN_PASSWORD_LENGTH } from '../services/accounts.js';
-import { createMaster, createOrganization, getMasterById, slugProblem } from '../services/masters.js';
+import {
+  createMaster,
+  createOrganization,
+  getOrganizationById,
+  slugProblem,
+} from '../services/masters.js';
 import { applyTemplate, templateList, TEMPLATES } from '../services/templates.js';
 import { getPlatformSettings } from '../services/platformSettings.js';
 
@@ -15,7 +20,7 @@ import { getPlatformSettings } from '../services/platformSettings.js';
 export const authRouter = Router();
 
 const LANGS = ['hy', 'ru', 'en'];
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 12);
 
@@ -58,13 +63,20 @@ authRouter.get('/platform', asyncHandler(async (_req, res) => {
   res.json(await getPlatformSettings());
 }));
 
-// POST /api/auth/signup — a new master, their login, their (empty) page and a
-// free trial, all in one transaction. An individual master signs up as the
-// owner of an organization of one. Answers with a session token so the new
-// master lands straight in their admin panel.
+// POST /api/auth/signup — a new account, its login and a free trial, all in
+// one transaction. Answers with a session token so the new owner lands
+// straight in their admin panel.
+//
+// - accountType "master" (the default): an individual master, the owner of an
+//   organization of one, with their own (empty) page.
+// - accountType "salon": a salon and its owner, who adds the masters next. The
+//   owner may be one of them from the start: sending `slug` and `displayName`
+//   gives them a calendar and page of their own too.
 authRouter.post('/signup', signupLimit, asyncHandler(async (req, res) => {
+  const isSalon = req.body?.accountType === 'salon';
   const email = cleanString(req.body?.email, 200).toLowerCase();
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  const salonName = cleanString(req.body?.salonName, 100);
   const slug = cleanString(req.body?.slug, 40).toLowerCase();
   const displayName = cleanString(req.body?.displayName, 100);
   const timezone = req.body?.timezone ?? DEFAULT_TIMEZONE;
@@ -74,35 +86,41 @@ authRouter.post('/signup', signupLimit, asyncHandler(async (req, res) => {
   const templates = Array.isArray(req.body?.templates)
     ? req.body.templates.filter((key) => TEMPLATES[key])
     : [];
+  // A salon's owner without a calendar sends neither.
+  const withCalendar = !isSalon || Boolean(slug || displayName);
 
   if (!EMAIL_PATTERN.test(email)) return res.status(400).json({ error: 'invalid_email' });
   if (password.length < MIN_PASSWORD_LENGTH || password.length > 200) {
     return res.status(400).json({ error: 'weak_password', minLength: MIN_PASSWORD_LENGTH });
   }
-  const problem = slugProblem(slug);
-  if (problem) return res.status(400).json({ error: problem });
-  if (!displayName) return res.status(400).json({ error: 'missing_display_name' });
+  if (isSalon && !salonName) return res.status(400).json({ error: 'missing_salon_name' });
+  if (withCalendar) {
+    const problem = slugProblem(slug);
+    if (problem) return res.status(400).json({ error: problem });
+    if (!displayName) return res.status(400).json({ error: 'missing_display_name' });
+  }
   if (!isValidTimeZone(timezone)) return res.status(400).json({ error: 'invalid_timezone' });
   if (!currency) return res.status(400).json({ error: 'invalid_currency' });
   if (langs.error) return res.status(400).json({ error: langs.error });
 
   const passwordHash = await bcrypt.hash(password, 12);
+  const locale = { timezone, currency, languages: langs.languages, defaultLang: langs.defaultLang };
 
   const client = await pool.connect();
   let user;
   try {
     await client.query('BEGIN');
-    const organizationId = await createOrganization(client, { kind: 'solo' });
-    const masterId = await createMaster(client, {
-      organizationId,
-      slug,
-      timezone,
-      currency,
-      languages: langs.languages,
-      defaultLang: langs.defaultLang,
-      displayName,
+    const organizationId = await createOrganization(client, {
+      kind: isSalon ? 'salon' : 'solo',
+      name: isSalon ? salonName : '',
+      notifyLang,
+      ...locale,
     });
-    await client.query('UPDATE masters SET notify_lang = $2 WHERE id = $1', [masterId, notifyLang]);
+    let masterId = null;
+    if (withCalendar) {
+      masterId = await createMaster(client, { organizationId, slug, displayName, ...locale });
+      await client.query('UPDATE masters SET notify_lang = $2 WHERE id = $1', [masterId, notifyLang]);
+    }
     const { rows } = await client.query(
       `INSERT INTO users (organization_id, master_id, role, email, password_hash)
        VALUES ($1, $2, 'owner', $3, $4)
@@ -111,9 +129,9 @@ authRouter.post('/signup', signupLimit, asyncHandler(async (req, res) => {
     );
     user = rows[0];
 
-    const master = await getMasterById(masterId, client);
+    const organization = await getOrganizationById(organizationId, client);
     for (const key of templates) {
-      await applyTemplate(client, master, key);
+      await applyTemplate(client, organization, key);
     }
     await client.query('COMMIT');
   } catch (err) {

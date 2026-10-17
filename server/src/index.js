@@ -6,6 +6,7 @@ import { adminRouter } from './routes/admin.js';
 import { authRouter } from './routes/auth.js';
 import { billingRouter } from './routes/billing.js';
 import { platformRouter } from './routes/platform.js';
+import { salonRouter } from './routes/salon.js';
 import { telegramRouter } from './routes/telegram.js';
 import { configureBotProfile, registerWebhook, telegramToken } from './services/telegram.js';
 import { startCompletionPrompts } from './services/completionPrompts.js';
@@ -41,6 +42,7 @@ app.use(express.json({ limit: '100kb' }));
 app.use('/api/telegram', telegramRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/salon', salonRouter);
 app.use('/api/platform', platformRouter);
 // Last: guest routes resolve the master from the host and 404 on anything else.
 app.use('/api', guestRouter);

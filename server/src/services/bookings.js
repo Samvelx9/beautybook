@@ -25,15 +25,22 @@ const ITEMS_LATERAL = `
 const BOOKING_FIELDS = `b.id, b.start_time, b.end_time, b.customer_name, b.customer_phone,
        b.status, b.price_at_booking, COALESCE(it.items, '[]'::json) AS items`;
 
-// Every booking query is for one master: `$1` is always their id, and `where`
-// adds to that. `where` is trusted SQL written in the routes, never anything
-// from a request; values always arrive as parameters starting at $2.
-export function bookingsQuery({ where = '', orderBy = 'b.start_time ASC', extraFields = '' } = {}) {
+// Every booking query is for one master — `$1` is always their id — or, with
+// `scope: 'organization'`, for every master of one organization, `$1` being
+// its id. `where` adds to that. It is trusted SQL written in the routes, never
+// anything from a request; values always arrive as parameters starting at $2.
+export function bookingsQuery({
+  where = '',
+  orderBy = 'b.start_time ASC',
+  extraFields = '',
+  scope = 'master',
+} = {}) {
+  const scoped = scope === 'organization' ? 'b.organization_id = $1' : 'b.master_id = $1';
   return `
     SELECT ${BOOKING_FIELDS}${extraFields ? `, ${extraFields}` : ''}
     FROM bookings b
     ${ITEMS_LATERAL}
-    WHERE b.master_id = $1${where ? ` AND (${where})` : ''}
+    WHERE ${scoped}${where ? ` AND (${where})` : ''}
     ORDER BY ${orderBy}`;
 }
 
@@ -71,9 +78,9 @@ export async function getBookingForGuest({ id, token }) {
 // rather than from the request, so a client can't name its own price — and
 // only from the price list of this master's own organization.
 //
-// `requireActive` is the difference between a guest booking (only zones on sale)
-// and one the master enters themselves (anything in the price list, including
-// a zone since hidden).
+// `requireActive` is the difference between a guest booking (only zones on
+// sale, and only ones this master performs) and one entered in the admin panel
+// (anything in the price list, including a zone since hidden).
 export async function resolveItems(master, rawItems, { requireActive = true } = {}) {
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
     return { error: 'missing_items' };
@@ -91,11 +98,13 @@ export async function resolveItems(master, rawItems, { requireActive = true } = 
   }
 
   const { rows } = await pool.query(
-    `SELECT s.id, s.duration_minutes, s.price, s.is_active, c.is_hourly
+    `SELECT s.id, s.duration_minutes, s.price, s.is_active, c.is_hourly,
+            EXISTS (SELECT 1 FROM master_services ms
+                     WHERE ms.master_id = $3 AND ms.service_id = s.id) AS performed
      FROM services s
      JOIN service_categories c ON c.id = s.category_id
      WHERE s.organization_id = $1 AND s.id = ANY($2::int[])`,
-    [master.organization_id, ids]
+    [master.organization_id, ids, master.id]
   );
   const byId = new Map(rows.map((row) => [row.id, row]));
 
@@ -105,7 +114,7 @@ export async function resolveItems(master, rawItems, { requireActive = true } = 
 
   for (const [index, raw] of rawItems.entries()) {
     const service = byId.get(Number(raw.serviceId));
-    if (!service || (requireActive && !service.is_active)) {
+    if (!service || (requireActive && !(service.is_active && service.performed))) {
       return { error: 'service_not_found' };
     }
 

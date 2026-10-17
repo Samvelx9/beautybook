@@ -72,7 +72,7 @@ export async function isSlotWithinAvailability(master, date, startUtc, endUtc) {
   return true;
 }
 
-// `is_hourly` comes from the zone's treatment: it decides whether the row's
+// A zone on sale that this master performs. `is_hourly` comes from the zone's treatment: it decides whether the row's
 // price is a flat price or an hourly rate, so every caller that prices or
 // times a booking needs it alongside the service itself.
 export async function getActiveService(master, serviceId) {
@@ -81,8 +81,9 @@ export async function getActiveService(master, serviceId) {
             s.price, c.is_hourly
      FROM services s
      JOIN service_categories c ON c.id = s.category_id
+     JOIN master_services ms ON ms.service_id = s.id AND ms.master_id = $3
      WHERE s.organization_id = $1 AND s.id = $2 AND s.is_active = true`,
-    [master.organization_id, serviceId]
+    [master.organization_id, serviceId, master.id]
   );
   return rows[0] || null;
 }

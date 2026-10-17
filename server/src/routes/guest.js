@@ -101,7 +101,9 @@ const GUEST_SERVICE_COLUMNS = `s.id, s.category_id, s.slug, s.name_en, s.name_ru
             s.duration_minutes, s.price, c.is_hourly`;
 
 // GET /api/categories — the treatments on the landing page, each with the
-// price list (zones) the guest sees after picking one.
+// price list (zones) the guest sees after picking one: the salon's shared
+// list, narrowed to what this master performs. A treatment with zones on sale
+// that this master does none of isn't theirs to show.
 guestRouter.get('/categories', asyncHandler(async (req, res) => {
   const { rows: categories } = await pool.query(
     `SELECT id, slug, name_en, name_ru, name_hy,
@@ -112,19 +114,28 @@ guestRouter.get('/categories', asyncHandler(async (req, res) => {
   );
 
   const { rows: services } = await pool.query(
-    `SELECT ${GUEST_SERVICE_COLUMNS}
+    `SELECT ${GUEST_SERVICE_COLUMNS},
+            EXISTS (SELECT 1 FROM master_services ms
+                     WHERE ms.master_id = $2 AND ms.service_id = s.id) AS performed
      FROM services s
      JOIN service_categories c ON c.id = s.category_id
      WHERE s.organization_id = $1 AND s.is_active = true ORDER BY s.sort_order, s.id`,
-    [req.master.organization_id]
+    [req.master.organization_id, req.master.id]
   );
 
-  const byCategory = new Map(categories.map((c) => [c.id, []]));
-  for (const service of services) {
-    byCategory.get(service.category_id)?.push(service);
+  const byCategory = new Map(categories.map((c) => [c.id, { onSale: 0, services: [] }]));
+  for (const { performed, ...service } of services) {
+    const entry = byCategory.get(service.category_id);
+    if (!entry) continue;
+    entry.onSale += 1;
+    if (performed) entry.services.push(service);
   }
 
-  res.json(categories.map((c) => ({ ...c, services: byCategory.get(c.id) })));
+  res.json(
+    categories
+      .filter((c) => byCategory.get(c.id).onSale === 0 || byCategory.get(c.id).services.length > 0)
+      .map((c) => ({ ...c, services: byCategory.get(c.id).services }))
+  );
 }));
 
 // GET /api/hours — weekly opening hours, shown next to the address
@@ -143,8 +154,9 @@ guestRouter.get('/services', asyncHandler(async (req, res) => {
     `SELECT ${GUEST_SERVICE_COLUMNS}
      FROM services s
      JOIN service_categories c ON c.id = s.category_id
+     JOIN master_services ms ON ms.service_id = s.id AND ms.master_id = $2
      WHERE s.organization_id = $1 AND s.is_active = true ORDER BY s.sort_order, s.id`,
-    [req.master.organization_id]
+    [req.master.organization_id, req.master.id]
   );
   res.json(rows);
 }));

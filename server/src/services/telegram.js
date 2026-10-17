@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { formatDuration } from '../lib/booking.js';
 import { formatLocalDateTime } from '../lib/time.js';
+import { pool } from '../db.js';
 import { localName } from './bookings.js';
 
 // One Telegram bot serves the whole platform. Each master links their own
@@ -36,6 +37,9 @@ const MASTER_TEXT = {
     connected: (site) => `✅ Готово! Сюда будут приходить уведомления о записях на ${site}.`,
     connectExpired: 'Эта ссылка устарела. Откройте настройки в панели и нажмите «Подключить Telegram» ещё раз.',
     masterHelp: (site) => `Этот чат получает уведомления о записях на ${site}.`,
+    master: 'Мастер',
+    salonConnected: (name) => `✅ Готово! Сюда будут приходить уведомления о записях ко всем мастерам салона «${name}».`,
+    salonHelp: (name) => `Этот чат получает уведомления о записях ко всем мастерам салона «${name}».`,
   },
   en: {
     created: '🆕 New booking',
@@ -63,6 +67,9 @@ const MASTER_TEXT = {
     connected: (site) => `✅ Done! Booking notifications for ${site} will arrive here.`,
     connectExpired: 'This link has expired. Open Settings in your admin panel and press “Connect Telegram” again.',
     masterHelp: (site) => `This chat receives booking notifications for ${site}.`,
+    master: 'Master',
+    salonConnected: (name) => `✅ Done! Notifications about bookings with every master of “${name}” will arrive here.`,
+    salonHelp: (name) => `This chat receives notifications about bookings with every master of “${name}”.`,
   },
   hy: {
     created: '🆕 Նոր գրանցում',
@@ -90,6 +97,9 @@ const MASTER_TEXT = {
     connected: (site) => `✅ Պատրաստ է։ ${site} կայքի գրանցումների ծանուցումներն այստեղ կգան։`,
     connectExpired: 'Այս հղումն այլևս վավեր չէ։ Բացեք կարգավորումները և կրկին սեղմեք «Միացնել Telegram»։',
     masterHelp: (site) => `Այս զրույցը ստանում է ${site} կայքի գրանցումների ծանուցումները։`,
+    master: 'Վարպետ',
+    salonConnected: (name) => `✅ Պատրաստ է։ «${name}» սրահի բոլոր վարպետների գրանցումների ծանուցումներն այստեղ կգան։`,
+    salonHelp: (name) => `Այս զրույցը ստանում է «${name}» սրահի բոլոր վարպետների գրանցումների ծանուցումները։`,
   },
 };
 
@@ -193,15 +203,40 @@ export async function getBotUsername() {
 // Best-effort: a Telegram outage or a master without a linked chat must never
 // break the booking flow, so failures are logged, never thrown — which is also
 // what lets the routes call this after answering, without awaiting it.
+//
+// In a salon the owner's chat (organizations.telegram_chat_id) hears about
+// every master's bookings too, in the salon's notification language and with
+// the master's name on top — unless it is the same chat, when the owner is
+// that master.
 export async function notifyMaster(master, event) {
   try {
-    if (!master?.telegram_chat_id) return;
-    const text = formatMessage(master, event);
-    if (!text) return;
-    await callTelegram('sendMessage', { chat_id: master.telegram_chat_id, text });
+    if (master?.telegram_chat_id) {
+      const text = formatMessage(master, event);
+      if (text) await callTelegram('sendMessage', { chat_id: master.telegram_chat_id, text });
+    }
+    const ownerChat = master?.organization_kind === 'salon' && master.organization_chat_id;
+    if (ownerChat && String(ownerChat) !== String(master.telegram_chat_id)) {
+      const asOwner = { ...master, notify_lang: master.organization_notify_lang };
+      const text = formatMessage(asOwner, event);
+      if (!text) return;
+      const T = masterText(asOwner);
+      const name = await masterName(master.id, asOwner.notify_lang);
+      await callTelegram('sendMessage', {
+        chat_id: ownerChat,
+        text: `${T.master}: ${name || master.slug}\n${text}`,
+      });
+    }
   } catch (err) {
     console.error('Telegram notification failed:', err.message);
   }
+}
+
+async function masterName(masterId, lang) {
+  const { rows } = await pool.query(
+    'SELECT owner_name_en, owner_name_ru, owner_name_hy FROM salon_profile WHERE master_id = $1',
+    [masterId]
+  );
+  return localName(rows[0], lang, 'owner_name');
 }
 
 // The buttons' callback data is "<answer>:<booking id>"; routes/telegram.js

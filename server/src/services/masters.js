@@ -10,7 +10,8 @@ export const MASTER_COLUMNS = `m.id, m.organization_id, o.kind AS organization_k
   m.custom_domain, m.timezone, m.currency, m.languages, m.default_lang, m.notify_lang,
   m.telegram_chat_id, o.trial_ends_at, o.subscription_status, o.period_ends_at,
   o.customer_portal_url, o.suspended_at, m.min_notice_minutes, m.booking_window_days,
-  m.created_at`;
+  m.deactivated_at, o.telegram_chat_id AS organization_chat_id,
+  o.notify_lang AS organization_notify_lang, m.created_at`;
 
 export const MASTER_FROM = 'masters m JOIN organizations o ON o.id = m.organization_id';
 
@@ -51,16 +52,18 @@ export function masterSiteUrl(master) {
   return `https://${master.slug}.${domain}`;
 }
 
-// Whether a master's public booking page takes bookings right now.
+// Whether a master's public booking page takes bookings right now. Also
+// answers for an organization row, which has the same billing columns.
 //
-// - A suspended master is off, whatever they've paid.
+// - A suspended organization is off, whatever it has paid, and so is a
+//   master their salon has deactivated.
 // - Lemon Squeezy's on_trial / active count, and so does past_due: Lemon
 //   Squeezy retries a failed renewal for a while, and a page that closes on
 //   the first declined card would cost the master clients over a bank hiccup.
 // - A cancelled subscription keeps working until the period it paid for ends.
 // - Otherwise the free trial decides.
 export function hasAccess(master, now = new Date()) {
-  if (!master || master.suspended_at) return false;
+  if (!master || master.suspended_at || master.deactivated_at) return false;
   const status = master.subscription_status;
   if (status === 'active' || status === 'on_trial' || status === 'past_due') return true;
   if (status === 'cancelled' && master.period_ends_at && new Date(master.period_ends_at) > now) {
@@ -74,6 +77,7 @@ export function accessSummary(master) {
   const now = new Date();
   let state;
   if (master.suspended_at) state = 'suspended';
+  else if (master.deactivated_at) state = 'deactivated';
   else if (['active', 'on_trial', 'past_due', 'cancelled'].includes(master.subscription_status) && hasAccess(master, now)) {
     state = master.subscription_status;
   } else if (hasAccess(master, now)) state = 'trial';
@@ -115,28 +119,85 @@ export async function getMasterByHost(rawHost) {
   return rows[0] ?? null;
 }
 
-export function newConnectToken() {
+export function newConnectToken(prefix = 'm') {
   // Telegram's start parameter allows A–Z a–z 0–9 _ - up to 64 characters; the
-  // "m_" prefix tells a master's connect link from a guest's booking token.
-  return `m_${randomBytes(18).toString('base64url')}`;
+  // prefix tells a master's connect link ("m_") and a salon owner's ("o_")
+  // from a guest's booking token.
+  return `${prefix}_${randomBytes(18).toString('base64url')}`;
+}
+
+export const ORGANIZATION_COLUMNS = `o.id, o.kind, o.name, o.timezone, o.currency, o.languages,
+  o.default_lang, o.notify_lang, o.telegram_chat_id, o.trial_ends_at, o.subscription_status,
+  o.period_ends_at, o.customer_portal_url, o.suspended_at, o.created_at`;
+
+export async function getOrganizationById(id, db = pool) {
+  const { rows } = await db.query(
+    `SELECT ${ORGANIZATION_COLUMNS} FROM organizations o WHERE o.id = $1`,
+    [id]
+  );
+  return rows[0] ?? null;
 }
 
 // A new organization — the business a subscription pays for — with its free
-// trial. A solo master's has just them; a salon's has its masters.
-export async function createOrganization(client, { kind = 'solo', name = '' } = {}) {
+// trial. A solo master's has just them; a salon's has its masters. The locale
+// is the organization's: its masters share one price list, so one currency.
+export async function createOrganization(
+  client,
+  { kind = 'solo', name = '', timezone, currency, languages, defaultLang, notifyLang = 'ru' }
+) {
   const { rows } = await client.query(
-    `INSERT INTO organizations (kind, name, trial_ends_at)
-     VALUES ($1, $2, now() + make_interval(days => $3))
+    `INSERT INTO organizations (kind, name, timezone, currency, languages, default_lang,
+                                notify_lang, trial_ends_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, now() + make_interval(days => $8))
      RETURNING id`,
-    [kind, name, TRIAL_DAYS]
+    [kind, name, timezone, currency, languages, defaultLang, notifyLang, TRIAL_DAYS]
   );
   return rows[0].id;
 }
 
+// A change to the organization's timezone, currency or languages, which every
+// one of its masters follows: their pages and messages read their own copy.
+// Takes any of { timezone, currency, languages, defaultLang }.
+export async function setOrganizationLocale(db, organizationId, locale) {
+  const columns = { timezone: 'timezone', currency: 'currency', languages: 'languages', defaultLang: 'default_lang' };
+  const fields = [];
+  const values = [organizationId];
+  for (const [key, column] of Object.entries(columns)) {
+    if (locale[key] === undefined) continue;
+    values.push(locale[key]);
+    fields.push(`${column} = $${values.length}`);
+  }
+  if (fields.length === 0) return;
+  await db.query(`UPDATE organizations SET ${fields.join(', ')} WHERE id = $1`, values);
+  await db.query(`UPDATE masters SET ${fields.join(', ')} WHERE organization_id = $1`, values);
+}
+
+// A service just added to the price list is performed by every active master
+// of the organization until the owner says otherwise — for a solo master,
+// simply by them.
+export async function offerByAllMasters(db, organizationId, serviceId) {
+  await db.query(
+    `INSERT INTO master_services (organization_id, master_id, service_id)
+     SELECT $1, id, $2 FROM masters WHERE organization_id = $1 AND deactivated_at IS NULL
+     ON CONFLICT DO NOTHING`,
+    [organizationId, serviceId]
+  );
+}
+
+// The monthly plan a salon is on, by how many masters it has working:
+// 1–5, 6–10, 11 and more. A solo master has the individual plan.
+export function planFor(organization, activeMasters) {
+  if (organization.kind === 'solo') return 'individual';
+  if (activeMasters <= 5) return 'salon_5';
+  if (activeMasters <= 10) return 'salon_10';
+  return 'salon_unlimited';
+}
+
 // A new master and everything their page needs to exist: a profile row (so
-// the landing page renders, even blank), and a working week to start from —
+// the landing page renders, even blank), a working week to start from —
 // Monday to Friday 10–19, Saturday 10–16, Sunday off — which they adjust in
-// the admin panel.
+// the admin panel, and the whole of the organization's price list as what
+// they perform (a salon's owner narrows it down).
 const DEFAULT_WEEK = [
   [0, false, null, null],
   [1, true, '10:00', '19:00'],
@@ -166,6 +227,12 @@ export async function createMaster(
     `INSERT INTO salon_profile (master_id, owner_name_en, owner_name_ru, owner_name_hy)
      VALUES ($1, $2, $3, $4)`,
     [masterId, name('en'), name('ru'), name('hy')]
+  );
+
+  await client.query(
+    `INSERT INTO master_services (organization_id, master_id, service_id)
+     SELECT $1, $2, id FROM services WHERE organization_id = $1`,
+    [organizationId, masterId]
   );
 
   for (const [day, open, start, end] of DEFAULT_WEEK) {

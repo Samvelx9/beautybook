@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { pool } from '../db.js';
-import { getMasterById } from '../services/masters.js';
+import { getMasterById, getOrganizationById } from '../services/masters.js';
 
 export function signToken(user) {
   return jwt.sign(
@@ -35,24 +35,50 @@ async function authenticate(req) {
   return { user };
 }
 
-// A master's own admin panel. `req.master` is the master every query in
-// routes/admin.js is scoped to — taken from the logged-in user, never from the
-// request.
-export async function requireMasterAuth(req, res, next) {
+// A login of an organization: an owner or one of a salon's masters.
+//
+// - `req.organization` is the organization the login belongs to — taken from
+//   the logged-in user, never from the request. The price list, expenses and
+//   billing are scoped to it.
+// - `req.master` is the login's own calendar, or null for a salon owner who
+//   isn't one of its masters. Whatever is scoped to a calendar uses it.
+//
+// A master the salon has deactivated can't sign in at all.
+export async function requireAccount(req, res, next) {
   try {
     const { user, error } = await authenticate(req);
     if (error) return res.status(401).json({ error });
-    if (!user.master_id) return res.status(403).json({ error: 'no_master' });
+    if (!user.organization_id) return res.status(403).json({ error: 'no_master' });
 
-    const master = await getMasterById(user.master_id);
-    if (!master) return res.status(401).json({ error: 'invalid_token' });
+    const organization = await getOrganizationById(user.organization_id);
+    const master = user.master_id ? await getMasterById(user.master_id) : null;
+    if (!organization || (user.master_id && !master)) {
+      return res.status(401).json({ error: 'invalid_token' });
+    }
+    if (user.role === 'master' && master.deactivated_at) {
+      return res.status(403).json({ error: 'master_deactivated' });
+    }
 
     req.user = user;
+    req.organization = organization;
     req.master = master;
     next();
   } catch (err) {
     next(err);
   }
+}
+
+// After requireAccount, for what only makes sense with a calendar.
+export function requireCalendar(req, res, next) {
+  if (!req.master) return res.status(403).json({ error: 'no_master' });
+  next();
+}
+
+// After requireAccount, for what is the owner's alone: billing, the price
+// list, expenses, the salon's masters.
+export function requireOwner(req, res, next) {
+  if (req.user.role !== 'owner') return res.status(403).json({ error: 'not_owner' });
+  next();
 }
 
 // The platform operator's screens (routes/platform.js).

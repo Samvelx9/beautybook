@@ -1,3 +1,5 @@
+import { offerByAllMasters } from './masters.js';
+
 // Starter price lists a new master can pick at sign-up (or later from the
 // Treatments screen), so they begin from a sensible shape instead of an empty
 // page. Each template is one or more treatments with their usual zones and
@@ -143,19 +145,19 @@ export const TEMPLATES = {
 
 export const TEMPLATE_KEYS = Object.keys(TEMPLATES);
 
-// Adds a template's treatments and zones to the price list of a master's
-// organization. Names are filled only in the languages the master offers. A
-// treatment whose slug the list already has is skipped rather than duplicated, so applying the same
+// Adds a template's treatments and zones to an organization's price list.
+// Names are filled only in the languages it offers. A treatment whose slug
+// the list already has is skipped rather than duplicated, so applying the same
 // template twice is harmless.
-export async function applyTemplate(client, master, key) {
+export async function applyTemplate(client, organization, key) {
   const template = TEMPLATES[key];
   if (!template) return 0;
-  const langs = master.languages;
+  const langs = organization.languages;
   const names = (item) => ['en', 'ru', 'hy'].map((l) => (langs.includes(l) ? item[l] : ''));
 
   const { rows: sortRows } = await client.query(
     'SELECT COALESCE(MAX(sort_order), 0) AS max FROM service_categories WHERE organization_id = $1',
-    [master.organization_id]
+    [organization.id]
   );
   let sortOrder = Number(sortRows[0].max);
   let added = 0;
@@ -167,19 +169,21 @@ export async function applyTemplate(client, master, key) {
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (organization_id, slug) DO NOTHING
        RETURNING id`,
-      [master.organization_id, treatment.slug, ...names(treatment), sortOrder, Boolean(treatment.hourly)]
+      [organization.id, treatment.slug, ...names(treatment), sortOrder, Boolean(treatment.hourly)]
     );
     if (!rows[0]) continue;
     added += 1;
 
     for (const [index, zone] of treatment.zones.entries()) {
-      await client.query(
+      const { rows: added } = await client.query(
         `INSERT INTO services (organization_id, category_id, slug, name_en, name_ru, name_hy,
                                duration_minutes, price, sort_order, is_active)
          VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, false)
-         ON CONFLICT (organization_id, slug) DO NOTHING`,
-        [master.organization_id, rows[0].id, `${treatment.slug}-${zone.slug}`, ...names(zone), zone.minutes, index + 1]
+         ON CONFLICT (organization_id, slug) DO NOTHING
+         RETURNING id`,
+        [organization.id, rows[0].id, `${treatment.slug}-${zone.slug}`, ...names(zone), zone.minutes, index + 1]
       );
+      if (added[0]) await offerByAllMasters(client, organization.id, added[0].id);
     }
   }
   return added;

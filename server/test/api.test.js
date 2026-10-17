@@ -729,3 +729,287 @@ test('only the owner can delete the organization or subscribe', async () => {
   const { rows: left } = await db.query(`SELECT COUNT(*)::int AS n FROM users WHERE email = 'staff@example.com'`);
   assert.equal(left[0].n, 0);
 });
+
+// ---------------------------------------------------------------------------
+// Salons
+// ---------------------------------------------------------------------------
+
+// Sign-ups are rate limited per address; the salon tests sign up from their own.
+const SALON_IP = { 'X-Real-IP': '198.51.100.7' };
+
+async function signupSalon(name, extra = {}) {
+  const res = await call('POST', '/auth/signup', {
+    headers: SALON_IP,
+    body: {
+      accountType: 'salon',
+      salonName: name,
+      email: `${name.toLowerCase()}@salon.example`,
+      password: 'correct horse battery',
+      languages: ['ru', 'en'],
+      defaultLang: 'ru',
+      timezone: 'Asia/Yerevan',
+      ...extra,
+    },
+  });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  return res.body.token;
+}
+
+const login = async (email, password) =>
+  (await call('POST', '/auth/login', { body: { email, password } })).body.token;
+
+const salon = {};
+
+test('a salon signs up; its owner runs it without a calendar of their own', async () => {
+  salon.owner = await signupSalon('Rose');
+
+  const account = await call('GET', '/admin/account', { token: salon.owner });
+  assert.equal(account.status, 200);
+  assert.equal(account.body.role, 'owner');
+  assert.deepEqual(account.body.organization.kind, 'salon');
+  assert.equal(account.body.master, null);
+  assert.equal(account.body.access.state, 'trial');
+  assert.equal((await call('GET', '/admin/bookings', { token: salon.owner })).body.error, 'no_master');
+
+  // The price list is the salon's, whether or not the owner is a master.
+  const cat = await call('POST', '/admin/categories', { token: salon.owner, body: { nameRu: 'Ногти' } });
+  assert.equal(cat.status, 201);
+  const svc = (nameRu, price) =>
+    call('POST', '/admin/services', {
+      token: salon.owner,
+      body: { nameRu, categoryId: cat.body.id, durationMinutes: 60, price },
+    });
+  salon.manicure = (await svc('Маникюр', 8000)).body.id;
+  salon.pedicure = (await svc('Педикюр', 10000)).body.id;
+
+  const body = (await call('GET', '/salon', { token: salon.owner })).body;
+  assert.equal(body.organization.name, 'Rose');
+  assert.deepEqual(body.masters, []);
+
+  // An individual master's account isn't a salon.
+  assert.equal((await call('GET', '/salon', { token: tokenB })).body.error, 'not_a_salon');
+  // A salon needs a name.
+  const nameless = await call('POST', '/auth/signup', {
+    headers: SALON_IP,
+    body: { accountType: 'salon', email: 'x@salon.example', password: 'correct horse battery' },
+  });
+  assert.equal(nameless.body.error, 'missing_salon_name');
+});
+
+test('the owner adds masters, and can become one', async () => {
+  const add = (slug, email) =>
+    call('POST', '/salon/masters', {
+      token: salon.owner,
+      body: { slug, email, displayName: `Master ${slug}` },
+    });
+  const nina = await add('rose-nina', 'nina@salon.example');
+  assert.equal(nina.status, 201, JSON.stringify(nina.body));
+  assert.equal(nina.body.email, 'nina@salon.example');
+  assert.ok(nina.body.password.length >= 10);
+  // Every service the salon has so far.
+  assert.deepEqual(nina.body.master.serviceIds, [salon.manicure, salon.pedicure].sort((a, b) => a - b));
+  salon.nina = { id: nina.body.master.id, token: await login('nina@salon.example', nina.body.password) };
+
+  const lilit = await add('rose-lilit', 'lilit@salon.example');
+  salon.lilit = { id: lilit.body.master.id, token: await login('lilit@salon.example', lilit.body.password) };
+
+  assert.equal((await add('rose-nina', 'other@salon.example')).body.error, 'slug_taken');
+  assert.equal((await add('rose-x', 'nina@salon.example')).body.error, 'email_taken');
+
+  const self = await call('POST', '/salon/masters', {
+    token: salon.owner,
+    body: { self: true, slug: 'rose-owner', displayName: 'Owner' },
+  });
+  assert.equal(self.status, 201, JSON.stringify(self.body));
+  assert.equal(self.body.master.isOwner, true);
+  salon.ownerMasterId = self.body.master.id;
+  assert.equal((await call('GET', '/admin/account', { token: salon.owner })).body.master.slug, 'rose-owner');
+  assert.equal(
+    (await call('POST', '/salon/masters', { token: salon.owner, body: { self: true, slug: 'rose-o2', displayName: 'O' } })).body.error,
+    'already_a_master'
+  );
+
+  // A service added now goes to every working master.
+  const cats = (await call('GET', '/admin/categories', { token: salon.owner })).body;
+  const brows = await call('POST', '/admin/services', {
+    token: salon.owner,
+    body: { nameRu: 'Брови', categoryId: cats[0].id, durationMinutes: 30, price: 3000 },
+  });
+  salon.brows = brows.body.id;
+  const body = (await call('GET', '/salon', { token: salon.owner })).body;
+  assert.equal(body.activeMasters, 3);
+  assert.equal(body.plan, 'salon_5');
+  for (const m of body.masters) assert.ok(m.serviceIds.includes(salon.brows), m.slug);
+});
+
+test("a master's page offers only what they perform", async () => {
+  const set = await call('PATCH', `/salon/masters/${salon.nina.id}`, {
+    token: salon.owner,
+    body: { serviceIds: [salon.manicure] },
+  });
+  assert.equal(set.status, 200, JSON.stringify(set.body));
+  assert.deepEqual(set.body.serviceIds, [salon.manicure]);
+
+  const ninaServices = (await call('GET', '/services', { slug: 'rose-nina' })).body.map((s) => s.id);
+  assert.deepEqual(ninaServices, [salon.manicure]);
+  const ninaCats = (await call('GET', '/categories', { slug: 'rose-nina' })).body;
+  assert.deepEqual(ninaCats[0].services.map((s) => s.id), [salon.manicure]);
+  assert.equal(
+    (await call('GET', `/services/${salon.pedicure}/slots`, { slug: 'rose-nina' })).status,
+    404
+  );
+
+  const book = (slug, serviceId, time) =>
+    call('POST', '/bookings', {
+      slug,
+      body: { date, time, customerName: 'Ani', customerPhone: '+37491000001', items: [{ serviceId }] },
+    });
+  assert.equal((await book('rose-nina', salon.pedicure, '12:00')).body.error, 'service_not_found');
+  const ok = await book('rose-lilit', salon.pedicure, '12:00');
+  assert.equal(ok.status, 201, JSON.stringify(ok.body));
+  salon.lilitBooking = ok.body.id;
+  assert.equal((await book('rose-nina', salon.manicure, '12:00')).status, 201);
+
+  // Not one of the salon's services.
+  const foreign = await call('PATCH', `/salon/masters/${salon.nina.id}`, {
+    token: salon.owner,
+    body: { serviceIds: [salon.manicure, zoneA.serviceId] },
+  });
+  assert.equal(foreign.body.error, 'invalid_service_ids');
+});
+
+test("a salon's master works their own calendar; the salon's business is the owner's", async () => {
+  const nina = salon.nina.token;
+  const mine = (await call('GET', '/admin/bookings', { token: nina })).body;
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].customer_name, 'Ani');
+
+  assert.equal((await call('GET', '/admin/services', { token: nina })).status, 200);
+  assert.equal((await call('POST', '/admin/categories', { token: nina, body: { nameRu: 'X' } })).body.error, 'not_owner');
+  assert.equal((await call('GET', '/admin/expenses', { token: nina })).body.error, 'not_owner');
+  assert.equal((await call('GET', '/salon', { token: nina })).body.error, 'not_owner');
+  assert.equal(
+    (await call('PATCH', '/admin/account/settings', { token: nina, body: { currency: 'USD' } })).body.error,
+    'not_owner'
+  );
+  const own = await call('PATCH', '/admin/account/settings', { token: nina, body: { minNoticeMinutes: 60 } });
+  assert.equal(own.status, 200);
+  assert.equal(own.body.master.minNoticeMinutes, 60);
+
+  // The salon's currency is everyone's.
+  const changed = await call('PATCH', '/salon', { token: salon.owner, body: { currency: 'USD', name: 'Rose Studio' } });
+  assert.equal(changed.status, 200, JSON.stringify(changed.body));
+  assert.equal((await call('GET', '/site', { slug: 'rose-nina' })).body.currency, 'USD');
+  assert.equal((await call('GET', '/site', { slug: 'rose-owner' })).body.currency, 'USD');
+});
+
+test("the owner sees and manages every master's bookings", async () => {
+  const all = (await call('GET', '/salon/bookings', { token: salon.owner })).body;
+  assert.deepEqual(all.map((b) => b.master_id).sort(), [salon.nina.id, salon.lilit.id].sort());
+  const ninaOnly = (await call('GET', `/salon/bookings?masterId=${salon.nina.id}`, { token: salon.owner })).body;
+  assert.equal(ninaOnly.length, 1);
+
+  // Through a master's calendar, as the master would.
+  const made = await call('POST', `/salon/masters/${salon.nina.id}/bookings`, {
+    token: salon.owner,
+    body: { date, time: '15:00', customerName: 'Phone', customerPhone: '+37491000002', items: [{ serviceId: salon.manicure }] },
+  });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  assert.equal((await call('GET', '/admin/bookings', { token: salon.nina.token })).body.length, 2);
+
+  // Handed to Lilit, who's free then.
+  const moved = await call('PATCH', `/salon/masters/${salon.nina.id}/bookings/${made.body.id}`, {
+    token: salon.owner,
+    body: { masterId: salon.lilit.id },
+  });
+  assert.equal(moved.status, 200, JSON.stringify(moved.body));
+  assert.equal((await call('GET', '/admin/bookings', { token: salon.nina.token })).body.length, 1);
+  assert.equal((await call('GET', '/admin/bookings', { token: salon.lilit.token })).body.length, 2);
+
+  // Back onto Lilit's own 12:00 visit is refused by the overlap rule.
+  const clash = await call('PATCH', `/salon/masters/${salon.lilit.id}/bookings/${made.body.id}`, {
+    token: salon.owner,
+    body: { masterId: salon.nina.id, time: '12:00' },
+  });
+  assert.equal(clash.body.error, 'slot_taken');
+
+  // A master can't hand their visit on; nor reach another master's calendar.
+  const byMaster = await call('PATCH', `/admin/bookings/${made.body.id}`, {
+    token: salon.lilit.token,
+    body: { masterId: salon.nina.id },
+  });
+  assert.equal(byMaster.body.error, 'not_owner');
+
+  // Another salon's owner sees none of it.
+  const other = await signupSalon('Lily');
+  assert.equal((await call('GET', `/salon/masters/${salon.nina.id}/bookings`, { token: other })).status, 404);
+  assert.equal((await call('PATCH', `/salon/masters/${salon.nina.id}`, { token: other, body: { active: false } })).status, 404);
+  assert.deepEqual((await call('GET', '/salon/bookings', { token: other })).body, []);
+  // Nor can a booking be handed to another salon's master.
+  const { rows } = await db.query(`SELECT id FROM masters WHERE slug = 'anna'`);
+  const away = await call('PATCH', `/salon/masters/${salon.lilit.id}/bookings/${made.body.id}`, {
+    token: salon.owner,
+    body: { masterId: rows[0].id },
+  });
+  assert.equal(away.body.error, 'invalid_master');
+});
+
+test("the owner's financials cover the salon; a master's only their own visits", async () => {
+  await call('PATCH', `/salon/masters/${salon.lilit.id}/bookings/${salon.lilitBooking}/status`, {
+    token: salon.owner,
+    body: { status: 'completed' },
+  });
+  const ninaVisit = (await call('GET', '/admin/bookings', { token: salon.nina.token })).body[0];
+  await call('PATCH', `/admin/bookings/${ninaVisit.id}/status`, {
+    token: salon.nina.token,
+    body: { status: 'completed' },
+  });
+  await call('POST', '/admin/expenses', {
+    token: salon.owner,
+    body: { category: 'Rent', amount: 50000, date },
+  });
+
+  const owner = (await call('GET', `/admin/financials?from=${date}&to=${date}`, { token: salon.owner })).body;
+  assert.equal(owner.income.total, 18000);
+  assert.equal(owner.expenses.total, 50000);
+  assert.equal(owner.income.byMaster.length, 2);
+  const onlyNina = (await call('GET', `/admin/financials?from=${date}&to=${date}&masterId=${salon.nina.id}`, { token: salon.owner })).body;
+  assert.equal(onlyNina.income.total, 8000);
+
+  const nina = (await call('GET', `/admin/financials?from=${date}&to=${date}`, { token: salon.nina.token })).body;
+  assert.equal(nina.income.total, 8000);
+  assert.equal(nina.expenses.total, 0);
+  assert.deepEqual(nina.income.byMaster, []);
+});
+
+test('a deactivated master can no longer sign in or be booked', async () => {
+  const off = await call('PATCH', `/salon/masters/${salon.nina.id}`, { token: salon.owner, body: { active: false } });
+  assert.equal(off.body.active, false);
+  assert.equal((await call('GET', '/admin/account', { token: salon.nina.token })).body.error, 'master_deactivated');
+  assert.equal((await call('GET', '/site', { slug: 'rose-nina' })).body.open, false);
+  assert.equal((await call('GET', '/salon', { token: salon.owner })).body.activeMasters, 2);
+  // Their history stays, and the owner can still look after it.
+  assert.equal((await call('GET', `/salon/masters/${salon.nina.id}/bookings`, { token: salon.owner })).body.length, 1);
+
+  // A new service no longer goes to them.
+  const cats = (await call('GET', '/admin/categories', { token: salon.owner })).body;
+  const svc = await call('POST', '/admin/services', {
+    token: salon.owner,
+    body: { nameRu: 'Наращивание', categoryId: cats[0].id, durationMinutes: 90, price: 15000 },
+  });
+  const masters = (await call('GET', '/salon', { token: salon.owner })).body.masters;
+  assert.ok(!masters.find((m) => m.id === salon.nina.id).serviceIds.includes(svc.body.id));
+
+  await call('PATCH', `/salon/masters/${salon.nina.id}`, { token: salon.owner, body: { active: true } });
+  assert.equal((await call('GET', '/site', { slug: 'rose-nina' })).body.open, true);
+});
+
+test("the owner resets a master's password", async () => {
+  const reset = await call('POST', `/salon/masters/${salon.lilit.id}/reset-password`, { token: salon.owner });
+  assert.equal(reset.status, 200);
+  assert.equal((await call('GET', '/admin/account', { token: salon.lilit.token })).status, 401);
+  assert.ok(await login('lilit@salon.example', reset.body.password));
+  // The owner's own calendar has no separate login to reset.
+  const own = await call('POST', `/salon/masters/${salon.ownerMasterId}/reset-password`, { token: salon.owner });
+  assert.equal(own.body.error, 'no_master_login');
+});
