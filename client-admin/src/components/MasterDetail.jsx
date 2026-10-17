@@ -97,7 +97,8 @@ function MonthlyBars({ T, lang, monthly, currency }) {
 // One master in depth, for the platform operator: account and standing,
 // performance, the monthly trend and the whole price list with how each zone
 // sells. Aggregates only — no client's name or phone ever reaches this screen.
-export default function MasterDetail({ T, lang, masterId, onBack, onAuthError, actions }) {
+// `backLabel`: where Back goes, when it isn't the list of all masters.
+export default function MasterDetail({ T, lang, masterId, onBack, onAuthError, actions, backLabel }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(false);
 
@@ -115,7 +116,7 @@ export default function MasterDetail({ T, lang, masterId, onBack, onAuthError, a
   }, [masterId]);
 
   const back = (
-    <button className="btn-outline" onClick={onBack} style={{ alignSelf: 'flex-start' }}>{T.backToMasters}</button>
+    <button className="btn-outline" onClick={onBack} style={{ alignSelf: 'flex-start' }}>{backLabel ?? T.backToMasters}</button>
   );
   if (error) return <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{back}<p style={{ color: 'var(--terracotta)' }}>{T.genericError}</p></div>;
   if (!data) return <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{back}<p style={{ color: 'var(--muted)' }}>{T.loading}</p></div>;

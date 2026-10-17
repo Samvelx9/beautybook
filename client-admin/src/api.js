@@ -164,6 +164,10 @@ export const api = {
 
   // The platform operator's screen.
   getPlatformMasters: () => request('/platform/masters'),
+  getPlatformOrganizations: () => request('/platform/organizations'),
+  getPlatformOrganization: (id) => request(`/platform/organizations/${id}`),
+  // { suspended } or { extendTrialDays } for a whole organization.
+  updatePlatformOrganization: (id, payload) => request(`/platform/organizations/${id}`, json('PATCH', payload)),
   getPlatformMaster: (id) => request(`/platform/masters/${id}`),
   getPlatformSettings: () => request('/platform/settings'),
   updatePlatformSettings: (payload) => request('/platform/settings', json('PATCH', payload)),

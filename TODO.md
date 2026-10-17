@@ -150,8 +150,13 @@ individual masters keep the current price.
       switch is retried. Tested against a stand-in Lemon Squeezy.
   - [ ] Create the three salon products/variants in Lemon Squeezy and set them.
   - [ ] Run one real salon subscription through a plan change end to end.
-- [ ] **Phase 6 — operator.** Organizations list (type, tier, masters, billing
-      state) and an organization's page with its masters.
+- [x] **Phase 6 — operator.** The Platform screen lists organizations — salons and
+      individual masters — with type, working masters, plan and price, standing,
+      owner and bookings; suspend and extend a trial act on the whole
+      organization. A salon's page shows its subscription, client count and each
+      master's activity (counts and totals only, never a client), and opens a
+      master's existing detail page. "All masters" is still there, with each
+      master's salon.
 
 ## 4. Engineering
 

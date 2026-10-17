@@ -4,9 +4,16 @@ import { randomBytes } from 'node:crypto';
 import { pool } from '../db.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 import { requirePlatformAdmin } from '../middleware/auth.js';
-import { accessSummary, masterSiteUrl, MASTER_COLUMNS, MASTER_FROM } from '../services/masters.js';
+import {
+  accessSummary,
+  masterSiteUrl,
+  planFor,
+  MASTER_COLUMNS,
+  MASTER_FROM,
+  ORGANIZATION_COLUMNS,
+} from '../services/masters.js';
 import { changeOwnPassword } from '../services/accounts.js';
-import { getPlatformSettings, updatePlatformSettings } from '../services/platformSettings.js';
+import { getPlatformSettings, planPriceMinor, updatePlatformSettings } from '../services/platformSettings.js';
 
 // The platform operator's view of every master: who signed up, how their
 // trial or subscription stands, and the few levers an operator needs —
@@ -29,6 +36,8 @@ platformRouter.get('/masters', asyncHandler(async (_req, res) => {
      LEFT JOIN salon_profile p ON p.master_id = m.id
      ORDER BY m.created_at DESC`
   );
+  const { rows: salons } = await pool.query(`SELECT id, name FROM organizations WHERE kind = 'salon'`);
+  const salonName = new Map(salons.map((o) => [o.id, o.name]));
   res.json(
     rows.map((m) => ({
       id: m.id,
@@ -43,8 +52,155 @@ platformRouter.get('/masters', asyncHandler(async (_req, res) => {
       bookings30d: m.bookings_30d,
       activeServices: m.active_services,
       access: accessSummary(m),
+      // The salon they work in, or null for an individual master.
+      salon: salonName.has(m.organization_id) ? { id: m.organization_id, name: salonName.get(m.organization_id) } : null,
+      deactivated: Boolean(m.deactivated_at),
     }))
   );
+}));
+
+// ---------------------------------------------------------------------------
+// Organizations: who pays — an individual master, or a salon and its masters
+// ---------------------------------------------------------------------------
+
+// Per organization: its masters (working / all), its owner's login, and its
+// bookings — counts only.
+const ORGANIZATION_LIST = `
+  SELECT ${ORGANIZATION_COLUMNS},
+         (SELECT COUNT(*)::int FROM masters m WHERE m.organization_id = o.id AND m.deactivated_at IS NULL) AS active_masters,
+         (SELECT COUNT(*)::int FROM masters m WHERE m.organization_id = o.id) AS total_masters,
+         (SELECT u.email FROM users u WHERE u.organization_id = o.id AND u.role = 'owner' ORDER BY u.id LIMIT 1) AS owner_email,
+         (SELECT MIN(m.id) FROM masters m WHERE m.organization_id = o.id) AS first_master_id,
+         (SELECT COUNT(*)::int FROM bookings b WHERE b.organization_id = o.id) AS bookings_total,
+         (SELECT COUNT(*)::int FROM bookings b
+           WHERE b.organization_id = o.id AND b.created_at > now() - interval '30 days') AS bookings_30d
+  FROM organizations o`;
+
+async function shapeOrganization(o, settings) {
+  const plan = planFor(o, o.active_masters);
+  // A solo master's page is theirs; a salon's is its own.
+  let siteUrl = null;
+  let name = o.name;
+  if (o.kind === 'salon') {
+    siteUrl = o.slug ? masterSiteUrl(o) : null;
+  } else if (o.first_master_id) {
+    const { rows } = await pool.query(
+      `SELECT m.slug, m.custom_domain, p.owner_name_ru, p.owner_name_en, p.owner_name_hy
+       FROM masters m LEFT JOIN salon_profile p ON p.master_id = m.id WHERE m.id = $1`,
+      [o.first_master_id]
+    );
+    siteUrl = masterSiteUrl(rows[0]);
+    name = rows[0].owner_name_ru || rows[0].owner_name_en || rows[0].owner_name_hy || rows[0].slug;
+  }
+  return {
+    id: o.id,
+    kind: o.kind,
+    name,
+    siteUrl,
+    ownerEmail: o.owner_email,
+    createdAt: o.created_at,
+    activeMasters: o.active_masters,
+    totalMasters: o.total_masters,
+    // For an individual master, the one master — their detail page is the
+    // organization's.
+    masterId: o.kind === 'solo' ? o.first_master_id : null,
+    plan,
+    priceMonthlyMinor: planPriceMinor(settings, plan),
+    priceCurrency: settings.priceCurrency,
+    bookingsTotal: o.bookings_total,
+    bookings30d: o.bookings_30d,
+    access: accessSummary(o),
+  };
+}
+
+platformRouter.get('/organizations', asyncHandler(async (_req, res) => {
+  const settings = await getPlatformSettings();
+  const { rows } = await pool.query(`${ORGANIZATION_LIST} ORDER BY o.created_at DESC`);
+  res.json(await Promise.all(rows.map((o) => shapeOrganization(o, settings))));
+}));
+
+// One organization in depth: its standing and subscription, and each master's
+// activity. Like a master's detail, only counts and totals — never a client.
+platformRouter.get('/organizations/:id', asyncHandler(async (req, res) => {
+  const id = idParam(req);
+  if (id === null) return res.status(400).json({ error: 'invalid_organization_id' });
+  const { rows } = await pool.query(`${ORGANIZATION_LIST} WHERE o.id = $1`, [id]);
+  if (!rows[0]) return res.status(404).json({ error: 'organization_not_found' });
+  const settings = await getPlatformSettings();
+  const organization = await shapeOrganization(rows[0], settings);
+
+  const { rows: billing } = await pool.query(
+    'SELECT ls_subscription_id, ls_variant_id FROM organizations WHERE id = $1',
+    [id]
+  );
+  const { rows: masters } = await pool.query(
+    `SELECT m.id, m.slug, m.custom_domain, m.deactivated_at, m.telegram_chat_id, m.created_at,
+            p.owner_name_ru, p.owner_name_en, p.owner_name_hy, u.email, u.role,
+            COUNT(b.id) FILTER (WHERE b.status <> 'cancelled')::int AS bookings,
+            COUNT(b.id) FILTER (WHERE b.created_at > now() - interval '30 days')::int AS bookings_30d,
+            COUNT(b.id) FILTER (WHERE b.status = 'completed')::int AS completed,
+            COALESCE(SUM(b.price_at_booking) FILTER (WHERE b.status = 'completed'), 0)::bigint AS revenue
+     FROM masters m
+     LEFT JOIN salon_profile p ON p.master_id = m.id
+     LEFT JOIN users u ON u.master_id = m.id
+     LEFT JOIN bookings b ON b.master_id = m.id
+     WHERE m.organization_id = $1
+     GROUP BY m.id, p.master_id, u.id
+     ORDER BY m.deactivated_at NULLS FIRST, m.created_at, m.id`,
+    [id]
+  );
+  const { rows: clientRows } = await pool.query(
+    `SELECT COUNT(DISTINCT customer_phone)::int AS clients FROM bookings
+     WHERE organization_id = $1 AND status <> 'cancelled'`,
+    [id]
+  );
+
+  res.json({
+    organization: {
+      ...organization,
+      subscriptionId: billing[0].ls_subscription_id,
+      variantId: billing[0].ls_variant_id,
+    },
+    clients: clientRows[0].clients,
+    masters: masters.map((m) => ({
+      id: m.id,
+      name: m.owner_name_ru || m.owner_name_en || m.owner_name_hy || m.slug,
+      siteUrl: masterSiteUrl(m),
+      email: m.email,
+      isOwner: m.role === 'owner',
+      active: !m.deactivated_at,
+      telegramConnected: Boolean(m.telegram_chat_id),
+      createdAt: m.created_at,
+      bookings: m.bookings,
+      bookings30d: m.bookings_30d,
+      completed: m.completed,
+      revenue: Number(m.revenue),
+    })),
+  });
+}));
+
+// { suspended: bool } | { extendTrialDays: n } — for the whole organization:
+// a salon's every master at once.
+platformRouter.patch('/organizations/:id', asyncHandler(async (req, res) => {
+  const id = idParam(req);
+  if (id === null) return res.status(400).json({ error: 'invalid_organization_id' });
+  const fields = [];
+  const values = [id];
+  if (req.body?.suspended !== undefined) {
+    fields.push(req.body.suspended ? 'suspended_at = now()' : 'suspended_at = NULL');
+  }
+  if (req.body?.extendTrialDays !== undefined) {
+    const days = Number(req.body.extendTrialDays);
+    if (!Number.isInteger(days) || days < 1 || days > 365) {
+      return res.status(400).json({ error: 'invalid_days' });
+    }
+    values.push(days);
+    fields.push('trial_ends_at = GREATEST(trial_ends_at, now()) + make_interval(days => $2)');
+  }
+  if (fields.length === 0) return res.status(400).json({ error: 'no_fields_to_update' });
+  const { rowCount } = await pool.query(`UPDATE organizations SET ${fields.join(', ')} WHERE id = $1`, values);
+  if (rowCount === 0) return res.status(404).json({ error: 'organization_not_found' });
+  res.json({ ok: true });
 }));
 
 // The operator's own password — they have no master Settings screen.

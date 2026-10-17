@@ -1365,3 +1365,44 @@ test("a salon's plan follows its working masters: checkout, upgrade, downgrade",
   await subscription(VARIANTS.salon_5, 'subscription_updated');
   assert.equal(changes().length, 3);
 });
+
+test('the operator sees organizations: salons with their masters and plan, without clients', async () => {
+  // The operator login made by an earlier test.
+  const operator = await login('operator', 'operator password 2');
+  assert.equal((await call('GET', '/platform/organizations', { token: tokenB })).status, 403);
+  const list = (await call('GET', '/platform/organizations', { token: operator })).body;
+  const tulip = list.find((o) => o.name === 'Tulip');
+  assert.equal(tulip.kind, 'salon');
+  assert.equal(tulip.siteUrl, `https://tulip-salon.${DOMAIN}`);
+  assert.equal(tulip.ownerEmail, 'tulip@salon.example');
+  assert.deepEqual([tulip.activeMasters, tulip.totalMasters, tulip.plan, tulip.priceMonthlyMinor], [2, 2, 'salon_5', 3000]);
+  assert.ok(tulip.bookingsTotal >= 3);
+  const solo = list.find((o) => o.kind === 'solo' && o.name === 'Master bella');
+  assert.ok(solo.masterId, 'a solo organization points at its master');
+  assert.equal(solo.plan, 'individual');
+
+  const detail = await call('GET', `/platform/organizations/${tulip.id}`, { token: operator });
+  assert.equal(detail.status, 200);
+  assert.deepEqual(detail.body.masters.map((m) => m.name), ['Tulip x', 'Tulip y']);
+  assert.ok(detail.body.masters.every((m) => m.active));
+  assert.equal(detail.body.clients, 1);
+  const raw = JSON.stringify(detail.body);
+  assert.ok(!raw.includes('+37499000001') && !raw.includes('Rose guest'), 'no client details');
+
+  // The masters list says which salon each master works in.
+  const masters = (await call('GET', '/platform/masters', { token: operator })).body;
+  assert.equal(masters.find((m) => m.slug === 'tulip-x').salon.name, 'Tulip');
+  assert.equal(masters.find((m) => m.slug === 'bella').salon, null);
+
+  // Suspending the organization closes every one of its pages.
+  await call('PATCH', `/platform/organizations/${tulip.id}`, { token: operator, body: { suspended: true } });
+  for (const slug of ['tulip-salon', 'tulip-x', 'tulip-y']) {
+    assert.equal((await call('GET', '/site', { slug })).body.open, false, slug);
+  }
+  await call('PATCH', `/platform/organizations/${tulip.id}`, { token: operator, body: { suspended: false } });
+  assert.equal((await call('GET', '/site', { slug: 'tulip-salon' })).body.open, true);
+  assert.equal(
+    (await call('PATCH', `/platform/organizations/${tulip.id}`, { token: operator, body: { extendTrialDays: 0 } })).body.error,
+    'invalid_days'
+  );
+});
