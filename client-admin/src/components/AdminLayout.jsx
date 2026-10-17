@@ -11,6 +11,7 @@ const TAB_LABEL_KEY = {
   settings: 'navSettings',
   platform: 'navPlatform',
   masters: 'navMasters',
+  taxes: 'navTaxes',
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;

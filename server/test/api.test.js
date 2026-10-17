@@ -1070,3 +1070,97 @@ test("the owner resets a master's password", async () => {
   const own = await call('POST', `/salon/masters/${salon.ownerMasterId}/reset-password`, { token: salon.owner });
   assert.equal(own.body.error, 'no_master_login');
 });
+
+test('taxes: the owner lists them, each master pays per their setting, fixed at completion', async () => {
+  const owner = await signupSalon('Iris', { slug: 'iris-owner', displayName: 'Iris owner', templates: ['nails'] });
+  const services = (await call('GET', '/admin/services', { token: owner })).body;
+  const svc = services[0].id;
+  await call('PATCH', `/admin/services/${svc}`, { token: owner, body: { isActive: true, price: 10000 } });
+
+  const turnover = await call('POST', '/admin/taxes', { token: owner, body: { name: 'Turnover tax', ratePercent: 10 } });
+  assert.equal(turnover.status, 201, JSON.stringify(turnover.body));
+  const other = await call('POST', '/admin/taxes', { token: owner, body: { name: 'Other', ratePercent: 5 } });
+  assert.equal((await call('POST', '/admin/taxes', { token: owner, body: { name: 'X', ratePercent: 0 } })).body.error, 'invalid_tax_rate');
+  assert.equal((await call('POST', '/admin/taxes', { token: owner, body: { name: 'X', ratePercent: 16.667 } })).body.error, 'invalid_tax_rate');
+
+  const masters = {};
+  for (const [key, payer] of [['a', 'master'], ['b', 'salon'], ['c', 'both']]) {
+    const added = await call('POST', '/salon/masters', {
+      token: owner,
+      body: { slug: `iris-${key}`, displayName: `Iris ${key}`, email: `iris-${key}@salon.example` },
+    });
+    const set = await call('PATCH', `/salon/masters/${added.body.master.id}`, { token: owner, body: { taxPayer: payer } });
+    assert.equal(set.body.taxPayer, payer);
+    masters[key] = { id: added.body.master.id, token: await login(`iris-${key}@salon.example`, added.body.password) };
+  }
+  const ownMaster = (await call('GET', '/salon', { token: owner })).body.masters.find((m) => m.isOwner);
+  assert.equal(ownMaster.taxPayer, 'salon');
+  assert.equal(
+    (await call('PATCH', `/salon/masters/${ownMaster.id}`, { token: owner, body: { taxPayer: 'master' } })).body.error,
+    'owner_keeps_all'
+  );
+
+  for (const id of [masters.a.id, masters.b.id, masters.c.id, ownMaster.id]) {
+    const done = await call('POST', `/salon/masters/${id}/bookings`, {
+      token: owner,
+      body: { date, time: '11:00', customerName: 'Tax', customerPhone: '+37491000010', status: 'completed', items: [{ serviceId: svc }] },
+    });
+    assert.equal(done.status, 201, JSON.stringify(done.body));
+  }
+
+  const fin = (token) => call('GET', `/admin/financials?from=${date}&to=${date}`, { token }).then((r) => r.body);
+  const seen = async (key) => {
+    const f = await fin(masters[key].token);
+    return [f.income.total, f.taxes.total, f.net];
+  };
+  assert.deepEqual(await seen('a'), [4000, 1500, 2500]); // pays both taxes on the whole visit
+  assert.deepEqual(await seen('b'), [4000, 0, 4000]); // the salon pays
+  assert.deepEqual(await seen('c'), [4000, 600, 3400]); // 15% of her 4000
+  assert.deepEqual((await fin(masters.a.token)).taxes.byTax, [
+    { name: 'Turnover tax', ratePercent: 10, total: 1000 },
+    { name: 'Other', ratePercent: 5, total: 500 },
+  ]);
+
+  const o = await fin(owner);
+  assert.equal(o.income.total, 40000);
+  assert.equal(o.income.ownerShare, 6000 * 3 + 10000);
+  assert.equal(o.taxes.total, 1500 + 900 + 1500); // b, c's salon part, the owner's own visit
+  assert.equal(o.taxes.mastersPay, 1500 + 600);
+  assert.equal(o.net, 28000 - 3900);
+  const turnoverRow = o.taxes.byTax.find((t) => t.name === 'Turnover tax');
+  assert.deepEqual(
+    [turnoverRow.total, turnoverRow.mastersPay, turnoverRow.salonPays],
+    [4000, 1000 + 400, 1000 + 600 + 1000]
+  );
+  const cRow = o.income.byMaster.find((r) => r.master_id === masters.c.id);
+  assert.deepEqual([cRow.masterShare, cRow.masterTaxes, cRow.salonTaxes], [4000, 600, 900]);
+
+  // Changing or removing a tax doesn't rewrite visits already completed.
+  await call('PATCH', `/admin/taxes/${turnover.body.id}`, { token: owner, body: { ratePercent: 20 } });
+  assert.equal((await call('DELETE', `/admin/taxes/${other.body.id}`, { token: owner })).status, 204);
+  assert.deepEqual(await seen('a'), [4000, 1500, 2500]);
+  assert.equal((await fin(owner)).net, 24100);
+
+  // The list is the owner's.
+  assert.equal((await call('GET', '/admin/taxes', { token: masters.a.token })).body.error, 'not_owner');
+  assert.deepEqual(
+    (await call('GET', '/admin/taxes', { token: owner })).body.map((t) => [t.name, t.ratePercent]),
+    [['Turnover tax', 20]]
+  );
+});
+
+test('an individual master pays their own taxes', async () => {
+  const res = await call('POST', '/auth/signup', {
+    headers: { 'X-Real-IP': '198.51.100.8' },
+    body: { email: 'solo-tax@example.com', password: 'correct horse battery', slug: 'solo-tax', displayName: 'Solo' },
+  });
+  const token = res.body.token;
+  const zone = await makeZone(token, { price: 10000 });
+  await call('POST', '/admin/taxes', { token, body: { name: 'Turnover tax', ratePercent: 5 } });
+  await call('POST', '/admin/bookings', {
+    token,
+    body: { date, time: '11:00', customerName: 'S', customerPhone: '1', status: 'completed', items: [{ serviceId: zone.serviceId }] },
+  });
+  const f = (await call('GET', `/admin/financials?from=${date}&to=${date}`, { token })).body;
+  assert.deepEqual([f.income.total, f.taxes.total, f.taxes.mastersPay, f.net], [10000, 500, 0, 9500]);
+});

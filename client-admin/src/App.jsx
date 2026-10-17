@@ -19,12 +19,14 @@ import SettingsScreen from './components/SettingsScreen.jsx';
 import PlatformScreen from './components/PlatformScreen.jsx';
 import OperatorSettingsScreen from './components/OperatorSettingsScreen.jsx';
 import MastersScreen from './components/MastersScreen.jsx';
+import TaxesScreen from './components/TaxesScreen.jsx';
 import MasterPicker from './components/MasterPicker.jsx';
 
 const SCREENS = {
   dashboard: DashboardScreen,
   bookings: BookingsScreen,
   masters: MastersScreen,
+  taxes: TaxesScreen,
   categories: CategoriesScreen,
   services: ServicesScreen,
   availability: AvailabilityScreen,
@@ -192,12 +194,12 @@ export default function App() {
     tabs = ['platform', 'settings'];
   } else if (isSalonOwner) {
     tabs = ['dashboard', ...(hasCalendars ? ['bookings'] : []), 'masters', 'categories', 'services',
-            ...(hasCalendars ? ['availability', 'profile'] : []), 'settings'];
+            ...(hasCalendars ? ['availability', 'profile'] : []), 'taxes', 'settings'];
   } else if (isSalon) {
     // A salon's master: their own calendar; the price list is the owner's.
     tabs = ['dashboard', 'bookings', 'availability', 'profile', 'settings'];
   } else {
-    tabs = ['dashboard', 'bookings', 'categories', 'services', 'availability', 'profile', 'settings'];
+    tabs = ['dashboard', 'bookings', 'categories', 'services', 'availability', 'profile', 'taxes', 'settings'];
   }
   if (account.isPlatformAdmin && !tabs.includes('platform')) tabs.push('platform');
   const current = tabs.includes(tab) ? tab : tabs[0];

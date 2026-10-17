@@ -53,6 +53,9 @@ export default function DashboardScreen({ T, lang, onAuthError, account, salon, 
   const [savingEdit, setSavingEdit] = useState(false);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState(null);
 
+  // Whether any visit in the period was taxed (the owner has listed taxes).
+  const hasTaxes = (financials?.taxes?.byTax.length ?? 0) > 0;
+
   async function load() {
     setLoading(true);
     try {
@@ -209,6 +212,14 @@ export default function DashboardScreen({ T, lang, onAuthError, account, salon, 
             {showsShare && (
               <MetricCard label={T.metricYourShare} value={formatPrice(financials.income.ownerShare, lang)} color="var(--sage)" />
             )}
+            {/* The taxes this login pays itself: a master's out of their share,
+                the owner's out of the salon's. */}
+            {hasTaxes && (
+              <MetricCard label={T.metricTaxes} value={`−${formatPrice(financials.taxes.total, lang)}`} color="var(--terracotta)" />
+            )}
+            {isSalonMaster && (
+              <MetricCard label={T.metricLeft} value={formatPrice(financials.net, lang)} color="var(--sage)" />
+            )}
             {isOwner && !masterId && (
               <>
                 <MetricCard label={T.metricExpenses} value={formatPrice(financials.expenses.total, lang)} />
@@ -240,6 +251,20 @@ export default function DashboardScreen({ T, lang, onAuthError, account, salon, 
                 lang={lang}
                 noData={T.noData}
                 shareLabel={T.yourShareColumn}
+              />
+            )}
+            {hasTaxes && (
+              <BreakdownCard
+                title={T.taxesByTax}
+                rows={financials.taxes.byTax.map((t) => ({
+                  label: `${t.name} · ${t.ratePercent}%`,
+                  value: t.total,
+                  share: showsShare ? t.salonPays : undefined,
+                }))}
+                lang={lang}
+                noData={T.noData}
+                shareLabel={showsShare ? T.salonPaysColumn : null}
+                note={showsShare && financials.taxes.mastersPay > 0 ? T.mastersPayNote(formatPrice(financials.taxes.mastersPay, lang)) : null}
               />
             )}
             {isOwner && !masterId && (
@@ -438,7 +463,7 @@ function groupByTreatment(rows, lang, withShare) {
   return [...groups.values()].sort((a, b) => b.value - a.value);
 }
 
-function BreakdownCard({ title, rows, groups, lang, noData, shareLabel }) {
+function BreakdownCard({ title, rows, groups, lang, noData, shareLabel, note }) {
   const empty = groups ? groups.length === 0 : rows.length === 0;
   return (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -476,6 +501,7 @@ function BreakdownCard({ title, rows, groups, lang, noData, shareLabel }) {
       ) : (
         rows.map((r, i) => <BreakdownRow key={i} row={r} lang={lang} />)
       )}
+      {note && !empty && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{note}</span>}
     </div>
   );
 }

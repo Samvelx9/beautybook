@@ -131,6 +131,12 @@ export const api = {
   // Cancelled bookings only — the endpoint refuses anything else.
   deleteBookings: (ids, masterId) => request(cal('/bookings', masterId), json('DELETE', { ids })),
 
+  // The owner's list of taxes on income.
+  getTaxes: () => request('/admin/taxes'),
+  createTax: (payload) => request('/admin/taxes', json('POST', payload)),
+  updateTax: (id, payload) => request(`/admin/taxes/${id}`, json('PATCH', payload)),
+  deleteTax: (id) => request(`/admin/taxes/${id}`, { method: 'DELETE' }),
+
   getExpenses: ({ from, to, category } = {}) => request(`/admin/expenses${query({ from, to, category })}`),
   getExpenseCategories: () => request('/admin/expenses/categories'),
   createExpense: (payload) => request('/admin/expenses', json('POST', payload)),
@@ -145,7 +151,7 @@ export const api = {
   // { slug, displayName, email } → { master, email, password }, or
   // { self: true, slug, displayName } for the owner's own calendar.
   addMaster: (payload) => request('/salon/masters', json('POST', payload)),
-  // { active } and/or { serviceIds }.
+  // { active }, { serviceIds }, { sharePercent } and/or { taxPayer }.
   updateMaster: (id, payload) => request(`/salon/masters/${id}`, json('PATCH', payload)),
   resetMasterLogin: (id) => request(`/salon/masters/${id}/reset-password`, { method: 'POST' }),
   connectSalonTelegram: () => request('/salon/telegram/connect', { method: 'POST' }),

@@ -38,6 +38,7 @@ salonRouter.use(requireAccount, requireOwner, (req, res, next) => {
 const UNIQUE_VIOLATION = '23505';
 const LANGS = ['hy', 'ru', 'en'];
 const BOOKING_STATUSES = ['confirmed', 'completed', 'cancelled', 'no_show'];
+const TAX_PAYERS = ['master', 'salon', 'both'];
 
 // A share in whole percent, 0–100, or null.
 function readShare(raw) {
@@ -57,6 +58,7 @@ async function salonBody(organizationId) {
   const { rows: masters } = await pool.query(
     `SELECT m.id, m.slug, m.custom_domain, m.deactivated_at, m.telegram_chat_id, m.created_at,
             m.share_percent, current_master_share(m.id) AS effective_share,
+            m.tax_payer, current_tax_payer(m.id) AS effective_tax_payer,
             p.owner_name_en, p.owner_name_ru, p.owner_name_hy,
             u.email, u.role,
             COALESCE(
@@ -104,6 +106,9 @@ async function salonBody(organizationId) {
       // and the share their visits are paid at now — 0 for the owner.
       sharePercent: m.share_percent,
       effectiveSharePercent: m.effective_share,
+      // Who pays the taxes on their visits: 'master', 'salon' or 'both' (each
+      // on their own part). The owner's own visits are always the salon's.
+      taxPayer: m.effective_tax_payer,
       createdAt: m.created_at,
     })),
   };
@@ -264,8 +269,10 @@ async function salonMaster(req, res) {
 // toward the plan.
 // { serviceIds: [...] } — the services they perform, replacing the list.
 // { sharePercent: n | null } — their own share of their visits' income, or
-// null to follow the salon's. Not for the owner's own calendar: the owner's
-// visits are all theirs.
+// null to follow the salon's.
+// { taxPayer: 'master' | 'salon' | 'both' } — who pays the taxes on their
+// visits, from visits completed now on.
+// Neither for the owner's own calendar: the owner's visits are all theirs.
 salonRouter.patch('/masters/:masterId', asyncHandler(async (req, res) => {
   const master = await salonMaster(req, res);
   if (!master) return;
@@ -273,8 +280,13 @@ salonRouter.patch('/masters/:masterId', asyncHandler(async (req, res) => {
   const active = req.body?.active;
   const rawServiceIds = req.body?.serviceIds;
   const rawShare = req.body?.sharePercent;
-  if (active === undefined && rawServiceIds === undefined && rawShare === undefined) {
+  const taxPayer = req.body?.taxPayer;
+  if (active === undefined && rawServiceIds === undefined && rawShare === undefined && taxPayer === undefined) {
     return res.status(400).json({ error: 'no_fields_to_update' });
+  }
+  if (taxPayer !== undefined) {
+    if (master.id === req.user.master_id) return res.status(400).json({ error: 'owner_keeps_all' });
+    if (!TAX_PAYERS.includes(taxPayer)) return res.status(400).json({ error: 'invalid_tax_payer' });
   }
   let share;
   if (rawShare !== undefined) {
@@ -305,6 +317,9 @@ salonRouter.patch('/masters/:masterId', asyncHandler(async (req, res) => {
     }
     if (rawShare !== undefined) {
       await client.query('UPDATE masters SET share_percent = $2 WHERE id = $1', [master.id, share]);
+    }
+    if (taxPayer !== undefined) {
+      await client.query('UPDATE masters SET tax_payer = $2 WHERE id = $1', [master.id, taxPayer]);
     }
     if (serviceIds) {
       await client.query('DELETE FROM master_services WHERE master_id = $1', [master.id]);

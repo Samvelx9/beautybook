@@ -552,6 +552,90 @@ adminRouter.delete('/services/:id', requireOwner, asyncHandler(async (req, res) 
 }));
 
 // ---------------------------------------------------------------------------
+// Taxes: what the organization pays on its income, as percentages of what
+// clients paid. The owner's to keep; each visit is taxed at the list as it
+// stood when the visit was completed (booking_taxes).
+// ---------------------------------------------------------------------------
+
+adminRouter.use('/taxes', requireOwner);
+
+const TAX_COLUMNS = 'id, name, rate_percent, sort_order';
+const shapeTax = (row) => ({ id: row.id, name: row.name, ratePercent: Number(row.rate_percent), sortOrder: row.sort_order });
+
+// A rate in percent with at most two decimals, above 0 and at most 100.
+function readRate(raw) {
+  const rate = Number(raw);
+  if (!Number.isFinite(rate) || rate <= 0 || rate > 100) return null;
+  return Math.round(rate * 100) === rate * 100 ? rate : null;
+}
+
+adminRouter.get('/taxes', asyncHandler(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT ${TAX_COLUMNS} FROM taxes WHERE organization_id = $1 ORDER BY sort_order, id`,
+    [req.organization.id]
+  );
+  res.json(rows.map(shapeTax));
+}));
+
+adminRouter.post('/taxes', asyncHandler(async (req, res) => {
+  const name = cleanString(req.body?.name, 100);
+  const rate = readRate(req.body?.ratePercent);
+  if (!name) return res.status(400).json({ error: 'missing_tax_name' });
+  if (rate === null) return res.status(400).json({ error: 'invalid_tax_rate' });
+  const { rows } = await pool.query(
+    `INSERT INTO taxes (organization_id, name, rate_percent, sort_order)
+     VALUES ($1, $2, $3, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM taxes WHERE organization_id = $1))
+     RETURNING ${TAX_COLUMNS}`,
+    [req.organization.id, name, rate]
+  );
+  res.status(201).json(shapeTax(rows[0]));
+}));
+
+adminRouter.patch('/taxes/:id', asyncHandler(async (req, res) => {
+  const id = idParam(req);
+  if (id === null) return res.status(400).json({ error: 'invalid_tax_id' });
+  const fields = [];
+  const values = [];
+  const set = (column, value) => {
+    values.push(value);
+    fields.push(`${column} = $${values.length}`);
+  };
+  if (req.body?.name !== undefined) {
+    const name = cleanString(req.body.name, 100);
+    if (!name) return res.status(400).json({ error: 'missing_tax_name' });
+    set('name', name);
+  }
+  if (req.body?.ratePercent !== undefined) {
+    const rate = readRate(req.body.ratePercent);
+    if (rate === null) return res.status(400).json({ error: 'invalid_tax_rate' });
+    set('rate_percent', rate);
+  }
+  if (fields.length === 0) return res.status(400).json({ error: 'no_fields_to_update' });
+
+  values.push(id, req.organization.id);
+  const { rows } = await pool.query(
+    `UPDATE taxes SET ${fields.join(', ')}
+     WHERE id = $${values.length - 1} AND organization_id = $${values.length}
+     RETURNING ${TAX_COLUMNS}`,
+    values
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'tax_not_found' });
+  res.json(shapeTax(rows[0]));
+}));
+
+// Visits already completed keep the taxes they were paid at.
+adminRouter.delete('/taxes/:id', asyncHandler(async (req, res) => {
+  const id = idParam(req);
+  if (id === null) return res.status(400).json({ error: 'invalid_tax_id' });
+  const { rowCount } = await pool.query('DELETE FROM taxes WHERE id = $1 AND organization_id = $2', [
+    id,
+    req.organization.id,
+  ]);
+  if (rowCount === 0) return res.status(404).json({ error: 'tax_not_found' });
+  res.status(204).end();
+}));
+
+// ---------------------------------------------------------------------------
 // Expenses
 // ---------------------------------------------------------------------------
 
@@ -674,8 +758,15 @@ adminRouter.delete('/expenses/:id', asyncHandler(async (req, res) => {
 // a master's share was never the salon's money.
 //
 // A salon's master sees only what is theirs: their share of their own visits,
-// as `total`. Each visit is split at the share it was completed at
-// (bookings.master_share_percent).
+// as `total`, the taxes they pay on it, and what's left. Each visit is split
+// at the share it was completed at (bookings.master_share_percent), and taxed
+// at the taxes it was completed with (booking_taxes): a tax the master pays
+// comes out of their share, one the salon pays out of the salon's, and with
+// "both" each pays on their own part.
+//
+// `taxes` sums them for the period, per tax — what is due to the tax office —
+// split into what the masters and the salon pay. Net is the owner's part less
+// the salon's taxes and the expenses.
 adminRouter.get('/financials', asyncHandler(async (req, res) => {
   const isOwner = req.user.role === 'owner';
   const tz = req.organization.timezone;
@@ -737,6 +828,49 @@ adminRouter.get('/financials', asyncHandler(async (req, res) => {
     params
   );
 
+  // Every tax line of every completed visit, with each side's part of it,
+  // rounded to whole units per visit.
+  const { rows: taxRows } = await pool.query(
+    `WITH v AS (
+       SELECT b.id, b.master_id, b.price_at_booking AS price,
+              ${masterPart('b.price_at_booking')} AS master_part
+       FROM bookings b
+       WHERE ${completed}
+     )
+     SELECT v.master_id, t.name, t.rate_percent,
+            SUM(CASE t.payer
+                  WHEN 'master' THEN round(v.price * t.rate_percent / 100)
+                  WHEN 'both' THEN round(v.master_part * t.rate_percent / 100)
+                  ELSE 0 END) AS master_tax,
+            SUM(CASE t.payer
+                  WHEN 'salon' THEN round(v.price * t.rate_percent / 100)
+                  WHEN 'both' THEN round((v.price - v.master_part) * t.rate_percent / 100)
+                  ELSE 0 END) AS salon_tax
+     FROM v JOIN booking_taxes t ON t.booking_id = v.id
+     GROUP BY v.master_id, t.name, t.rate_percent
+     -- The heaviest tax first, so the list reads the same every time.
+     ORDER BY t.rate_percent DESC, t.name`,
+    params
+  );
+  const taxLines = taxRows.map((r) => ({
+    masterId: r.master_id,
+    name: r.name,
+    ratePercent: Number(r.rate_percent),
+    masterTax: Number(r.master_tax),
+    salonTax: Number(r.salon_tax),
+  }));
+  // Per tax (name and rate), summed over masters.
+  const byTax = new Map();
+  for (const line of taxLines) {
+    const key = `${line.name}|${line.ratePercent}`;
+    const entry = byTax.get(key) ?? { name: line.name, ratePercent: line.ratePercent, mastersPay: 0, salonPays: 0 };
+    entry.mastersPay += line.masterTax;
+    entry.salonPays += line.salonTax;
+    byTax.set(key, entry);
+  }
+  const taxesOf = (masterId, side) =>
+    taxLines.filter((l) => masterId === null || l.masterId === masterId).reduce((sum, l) => sum + l[side], 0);
+
   const { rows: expensesByCategory } = isOwner
     ? await pool.query(
         `SELECT category, COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count
@@ -764,14 +898,47 @@ adminRouter.get('/financials', asyncHandler(async (req, res) => {
   const incomeTotal = byMaster.reduce((sum, row) => sum + row.total, 0);
   const ownerShare = byMaster.reduce((sum, row) => sum + (row.ownerShare ?? 0), 0);
   const expensesTotal = byCategory.reduce((sum, row) => sum + row.total, 0);
+  const completedCount = byMaster.reduce((sum, row) => sum + row.count, 0);
 
+  if (!isOwner) {
+    const taxes = taxesOf(null, 'masterTax');
+    return res.json({
+      period: { from, to },
+      income: { total: incomeTotal, byService, byMaster: [] },
+      taxes: {
+        total: taxes,
+        byTax: [...byTax.values()]
+          .filter((t) => t.mastersPay > 0)
+          .map((t) => ({ name: t.name, ratePercent: t.ratePercent, total: t.mastersPay })),
+      },
+      expenses: { total: 0, byCategory: [] },
+      net: incomeTotal - taxes,
+      bookingsCompleted: completedCount,
+    });
+  }
+
+  const salonTaxes = taxesOf(null, 'salonTax');
   res.json({
     period: { from, to },
-    income: isOwner
-      ? { total: incomeTotal, ownerShare, byService, byMaster }
-      : { total: incomeTotal, byService, byMaster: [] },
+    income: {
+      total: incomeTotal,
+      ownerShare,
+      byService,
+      byMaster: byMaster.map((row) => ({
+        ...row,
+        masterShare: row.total - row.ownerShare,
+        masterTaxes: taxesOf(row.master_id, 'masterTax'),
+        salonTaxes: taxesOf(row.master_id, 'salonTax'),
+      })),
+    },
+    taxes: {
+      // What the salon pays itself; the masters' part comes out of their shares.
+      total: salonTaxes,
+      mastersPay: taxesOf(null, 'masterTax'),
+      byTax: [...byTax.values()].map((t) => ({ ...t, total: t.mastersPay + t.salonPays })),
+    },
     expenses: { total: expensesTotal, byCategory },
-    net: (isOwner ? ownerShare : incomeTotal) - expensesTotal,
-    bookingsCompleted: byMaster.reduce((sum, row) => sum + row.count, 0),
+    net: ownerShare - salonTaxes - expensesTotal,
+    bookingsCompleted: completedCount,
   });
 }));

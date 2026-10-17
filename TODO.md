@@ -114,8 +114,18 @@ individual masters keep the current price.
         when the visit is completed. A master sees only their share; the owner
         sees the whole income with their share beside it, and net is their share
         less expenses.
+  - [x] **Taxes.** The owner lists the taxes on income (name, % of what the client
+        paid) on a Taxes page — individual masters too. Per master: who pays
+        them — the master out of their share, the salon out of its, or both,
+        each on their own part; the owner's own visits are the salon's. Fixed on
+        the visit when it's completed (`booking_taxes`). A master sees their
+        share − their taxes = what's left; the owner sees income, their share,
+        the salon's taxes, expenses and net, and per tax what's due and who
+        covers it.
   - [ ] What each master is owed for a period, as a payout list the owner can
         mark paid.
+  - [ ] Taxes not charged per visit: on the master's pay (income tax and social
+        payments withheld from an employee), and on the salon's yearly profit.
   - [ ] A salon-wide day view: every master side by side as columns, for the
         front desk (today "All masters" is one list).
 - [ ] **Phase 4 — guest side.** A salon page at `<salon slug>.<domain>`: services →
