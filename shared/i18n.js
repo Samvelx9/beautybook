@@ -14,7 +14,9 @@ export const LANG_META = {
   en: { code: 'EN', flag: '🇬🇧', name: 'English' },
 };
 export const LOCALE_TAG = { hy: 'hy-AM', ru: 'ru-RU', en: 'en-US' };
-export const DEFAULT_LANG = 'ru';
+// Armenian first: what a page opens in until the master's own default, or the
+// visitor's own choice, says otherwise.
+export const DEFAULT_LANG = 'hy';
 
 export const WEEKDAY_SHORT = {
   en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
@@ -112,7 +114,7 @@ export function localName(row, lang, field = 'name') {
   const key = (l) => (field.includes('_') || field === 'name' || field === 'description'
     ? `${field}_${l}`
     : `${field}${l[0].toUpperCase()}${l.slice(1)}`);
-  return row[key(lang)] || row[key('ru')] || row[key('en')] || row[key('hy')] || '';
+  return row[key(lang)] || row[key('hy')] || row[key('ru')] || row[key('en')] || '';
 }
 
 // dateStr: 'YYYY-MM-DD'. Constructed from explicit parts (not `new Date(dateStr)`)

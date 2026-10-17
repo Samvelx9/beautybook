@@ -40,7 +40,7 @@ async function connectMaster(message, token) {
     [token, chatId]
   );
   const master = rows[0];
-  const T = masterText(master ?? { notify_lang: 'ru' });
+  const T = masterText(master ?? { notify_lang: 'hy' });
   await callTelegram('sendMessage', {
     chat_id: chatId,
     text: master ? T.connected(masterSiteUrl(master)) : T.connectExpired,
@@ -67,7 +67,7 @@ async function connectSalon(message, token) {
     [token, chatId]
   );
   const salon = rows[0];
-  const T = masterText(salon ?? { notify_lang: 'ru' });
+  const T = masterText(salon ?? { notify_lang: 'hy' });
   await callTelegram('sendMessage', {
     chat_id: chatId,
     text: salon ? T.salonConnected(salon.name) : T.connectExpired,

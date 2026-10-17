@@ -104,7 +104,7 @@ const MASTER_TEXT = {
 };
 
 export function masterText(master) {
-  return MASTER_TEXT[master?.notify_lang] ?? MASTER_TEXT.ru;
+  return MASTER_TEXT[master?.notify_lang] ?? MASTER_TEXT.hy;
 }
 
 function formatMessage(master, event) {

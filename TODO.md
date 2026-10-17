@@ -37,18 +37,16 @@ Most urgent first. What's already built is in [DONE.md](DONE.md).
       certificate renewal fails.
 - [ ] **Try it on a phone** end to end (sign-up, setup, booking, Telegram).
 - [ ] **Armenian first.** The platform speaks three languages — Armenian, Russian,
-      English — and Armenian must be the default everywhere. The Armenian strings
-      exist for every screen; what's left is the defaults, which are Russian today:
-  - [ ] `DEFAULT_LANG` in `shared/i18n.js` (the admin panel falls back to it when
-        the browser isn't set to a supported language; the guest page until the
-        master's own default arrives).
-  - [ ] Server defaults: `notify_lang` on `masters` and `organizations`, the
-        sign-up default, and `masterText()`'s fallback for Telegram messages.
-        A master's page already opens in Armenian by default (`default_lang`).
-  - [ ] The sign-up form preselects Armenian for the page and for notifications.
+      English — and Armenian is the default everywhere.
+  - [x] Defaults: `DEFAULT_LANG` is `hy`; the admin panel opens in Armenian unless
+        the visitor picked another language (no longer the browser's); new
+        accounts' Telegram language is Armenian (sign-up and the `notify_lang`
+        column defaults); Telegram text and guest messages fall back to Armenian;
+        names missing in the language asked for fall back to Armenian first.
+        Existing accounts keep the language they have.
   - [ ] A native speaker reads the Armenian copy through — it hasn't been
         proofread — including the Telegram messages and the privacy policy.
-  - [ ] Every new screen ships in all three languages (the salon screens included).
+  - [x] Every new screen ships in all three languages (the salon screens included).
 
 ## 3. Product
 

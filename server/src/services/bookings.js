@@ -190,13 +190,14 @@ export async function replaceItems(client, master, bookingId, items) {
 }
 
 // A name in the language asked for, or in whichever language the master did
-// fill in — a master working only in Russian leaves the others blank.
+// fill in — Armenian first — since a master working only in Russian leaves
+// the others blank.
 export function localName(row, lang, field = 'name') {
   return (
     row?.[`${field}_${lang}`] ||
+    row?.[`${field}_hy`] ||
     row?.[`${field}_ru`] ||
     row?.[`${field}_en`] ||
-    row?.[`${field}_hy`] ||
     ''
   );
 }

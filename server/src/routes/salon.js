@@ -99,7 +99,7 @@ async function salonBody(organizationId) {
     masters: masters.map((m) => ({
       id: m.id,
       slug: m.slug,
-      name: m.owner_name_ru || m.owner_name_en || m.owner_name_hy || '',
+      name: m.owner_name_hy || m.owner_name_ru || m.owner_name_en || '',
       siteUrl: masterSiteUrl(m),
       // The login that works this calendar: a master's own, or the owner's
       // when the owner is one of the masters.

@@ -170,7 +170,7 @@ export async function getOrganizationById(id, db = pool) {
 // headed with its name in every language it offers.
 export async function createOrganization(
   client,
-  { kind = 'solo', name = '', slug = null, timezone, currency, languages, defaultLang, notifyLang = 'ru' }
+  { kind = 'solo', name = '', slug = null, timezone, currency, languages, defaultLang, notifyLang = 'hy' }
 ) {
   const { rows } = await client.query(
     `INSERT INTO organizations (kind, name, slug, timezone, currency, languages, default_lang,

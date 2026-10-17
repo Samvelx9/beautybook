@@ -31,7 +31,8 @@ import {
 // then, but silently.
 
 export const GUEST_LANGS = ['hy', 'ru', 'en'];
-const FALLBACK_LANG = 'ru';
+// For a guest whose language isn't known: Armenian.
+const FALLBACK_LANG = 'hy';
 
 const TEXT = {
   en: {
@@ -127,6 +128,7 @@ const langOf = (booking) => (GUEST_LANGS.includes(booking?.guest_lang) ? booking
 function langFromTelegram(code) {
   const c = String(code ?? '').toLowerCase();
   if (c.startsWith('hy')) return 'hy';
+  if (c.startsWith('ru')) return 'ru';
   if (c.startsWith('en')) return 'en';
   return FALLBACK_LANG;
 }

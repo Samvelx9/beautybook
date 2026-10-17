@@ -43,7 +43,7 @@ platformRouter.get('/masters', asyncHandler(async (_req, res) => {
       id: m.id,
       slug: m.slug,
       email: m.email,
-      name: m.owner_name_ru || m.owner_name_en || m.owner_name_hy || '',
+      name: m.owner_name_hy || m.owner_name_ru || m.owner_name_en || '',
       siteUrl: masterSiteUrl(m),
       customDomain: m.custom_domain,
       createdAt: m.created_at,
@@ -90,7 +90,7 @@ async function shapeOrganization(o, settings) {
       [o.first_master_id]
     );
     siteUrl = masterSiteUrl(rows[0]);
-    name = rows[0].owner_name_ru || rows[0].owner_name_en || rows[0].owner_name_hy || rows[0].slug;
+    name = rows[0].owner_name_hy || rows[0].owner_name_ru || rows[0].owner_name_en || rows[0].slug;
   }
   return {
     id: o.id,
@@ -164,7 +164,7 @@ platformRouter.get('/organizations/:id', asyncHandler(async (req, res) => {
     clients: clientRows[0].clients,
     masters: masters.map((m) => ({
       id: m.id,
-      name: m.owner_name_ru || m.owner_name_en || m.owner_name_hy || m.slug,
+      name: m.owner_name_hy || m.owner_name_ru || m.owner_name_en || m.slug,
       siteUrl: masterSiteUrl(m),
       email: m.email,
       isOwner: m.role === 'owner',
@@ -422,7 +422,7 @@ platformRouter.get('/masters/:id', asyncHandler(async (req, res) => {
       id: m.id,
       slug: m.slug,
       email: m.email,
-      name: m.owner_name_ru || m.owner_name_en || m.owner_name_hy || '',
+      name: m.owner_name_hy || m.owner_name_ru || m.owner_name_en || '',
       names: { en: m.owner_name_en, ru: m.owner_name_ru, hy: m.owner_name_hy },
       siteUrl: masterSiteUrl(m),
       customDomain: m.custom_domain,
@@ -441,7 +441,7 @@ platformRouter.get('/masters/:id', asyncHandler(async (req, res) => {
       telegram: m.telegram,
       instagram: m.instagram,
       email: m.contact_email,
-      address: m.address_ru || m.address_en || m.address_hy || '',
+      address: m.address_hy || m.address_ru || m.address_en || '',
     },
     categories: [...byCategory.values()],
     stats: {

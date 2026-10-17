@@ -85,7 +85,7 @@ authRouter.post('/signup', signupLimit, asyncHandler(async (req, res) => {
   const timezone = req.body?.timezone ?? DEFAULT_TIMEZONE;
   const currency = readCurrency(req.body?.currency ?? 'AMD');
   const langs = readLanguages(req.body?.languages ?? LANGS, req.body?.defaultLang);
-  const notifyLang = LANGS.includes(req.body?.notifyLang) ? req.body.notifyLang : 'ru';
+  const notifyLang = LANGS.includes(req.body?.notifyLang) ? req.body.notifyLang : 'hy';
   const templates = Array.isArray(req.body?.templates)
     ? req.body.templates.filter((key) => TEMPLATES[key])
     : [];

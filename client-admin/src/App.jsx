@@ -59,10 +59,11 @@ function storedLang() {
     const value = localStorage.getItem(LANG_STORAGE_KEY);
     if (value && STRINGS[value]) return value;
   } catch {
-    // fall through to the browser's language
+    // Storage unavailable: the default.
   }
-  const browser = (navigator.language || '').slice(0, 2);
-  return STRINGS[browser] ? browser : DEFAULT_LANG;
+  // Armenian unless the visitor has chosen otherwise — not the browser's
+  // language, which in Armenia is mostly English or Russian.
+  return DEFAULT_LANG;
 }
 
 export default function App() {

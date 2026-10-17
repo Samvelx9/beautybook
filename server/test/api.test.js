@@ -1406,3 +1406,21 @@ test('the operator sees organizations: salons with their masters and plan, witho
     'invalid_days'
   );
 });
+
+test('Armenian is the default language', async () => {
+  const res = await call('POST', '/auth/signup', {
+    headers: { 'X-Real-IP': '198.51.100.9' },
+    body: { email: 'hy-default@example.com', password: 'correct horse battery', slug: 'hy-default', displayName: 'Արմինե' },
+  });
+  assert.equal(res.status, 201);
+  const account = (await call('GET', '/admin/account', { token: res.body.token })).body;
+  assert.equal(account.master.defaultLang, 'hy');
+  assert.equal(account.master.notifyLang, 'hy');
+  assert.equal(account.organization.notifyLang, 'hy');
+  assert.equal((await call('GET', '/site', { slug: 'hy-default' })).body.defaultLang, 'hy');
+  const { rows } = await db.query(
+    `SELECT column_default FROM information_schema.columns
+      WHERE column_name = 'notify_lang' AND table_name IN ('masters', 'organizations')`
+  );
+  assert.deepEqual(rows.map((r) => r.column_default), ["'hy'::text", "'hy'::text"]);
+});
