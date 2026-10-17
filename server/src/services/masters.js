@@ -3,10 +3,16 @@ import { pool } from '../db.js';
 
 // Columns every request handling a master needs: how to reach their page,
 // their locale, and enough billing state to decide whether the page is open.
-export const MASTER_COLUMNS = `m.id, m.slug, m.custom_domain, m.timezone, m.currency,
-  m.languages, m.default_lang, m.notify_lang, m.telegram_chat_id, m.trial_ends_at,
-  m.subscription_status, m.period_ends_at, m.customer_portal_url, m.suspended_at,
-  m.min_notice_minutes, m.booking_window_days, m.created_at`;
+// Billing belongs to the master's organization (a salon pays once for all its
+// masters) and comes along under its own column names, so a master row is
+// still all hasAccess() needs. Select them FROM MASTER_FROM.
+export const MASTER_COLUMNS = `m.id, m.organization_id, o.kind AS organization_kind, m.slug,
+  m.custom_domain, m.timezone, m.currency, m.languages, m.default_lang, m.notify_lang,
+  m.telegram_chat_id, o.trial_ends_at, o.subscription_status, o.period_ends_at,
+  o.customer_portal_url, o.suspended_at, m.min_notice_minutes, m.booking_window_days,
+  m.created_at`;
+
+export const MASTER_FROM = 'masters m JOIN organizations o ON o.id = m.organization_id';
 
 // Subdomains that will never be a master's page: the platform's own hosts and
 // names a visitor would mistake for something official.
@@ -83,7 +89,7 @@ export function accessSummary(master) {
 }
 
 export async function getMasterById(id, db = pool) {
-  const { rows } = await db.query(`SELECT ${MASTER_COLUMNS} FROM masters m WHERE m.id = $1`, [id]);
+  const { rows } = await db.query(`SELECT ${MASTER_COLUMNS} FROM ${MASTER_FROM} WHERE m.id = $1`, [id]);
   return rows[0] ?? null;
 }
 
@@ -97,13 +103,13 @@ export async function getMasterByHost(rawHost) {
   if (host.endsWith(`.${domain}`)) {
     const slug = host.slice(0, -(domain.length + 1));
     if (!SLUG_PATTERN.test(slug)) return null;
-    const { rows } = await pool.query(`SELECT ${MASTER_COLUMNS} FROM masters m WHERE m.slug = $1`, [slug]);
+    const { rows } = await pool.query(`SELECT ${MASTER_COLUMNS} FROM ${MASTER_FROM} WHERE m.slug = $1`, [slug]);
     return rows[0] ?? null;
   }
 
   const bare = host.replace(/^www\./, '');
   const { rows } = await pool.query(
-    `SELECT ${MASTER_COLUMNS} FROM masters m WHERE m.custom_domain = $1`,
+    `SELECT ${MASTER_COLUMNS} FROM ${MASTER_FROM} WHERE m.custom_domain = $1`,
     [bare]
   );
   return rows[0] ?? null;
@@ -113,6 +119,18 @@ export function newConnectToken() {
   // Telegram's start parameter allows A–Z a–z 0–9 _ - up to 64 characters; the
   // "m_" prefix tells a master's connect link from a guest's booking token.
   return `m_${randomBytes(18).toString('base64url')}`;
+}
+
+// A new organization — the business a subscription pays for — with its free
+// trial. A solo master's has just them; a salon's has its masters.
+export async function createOrganization(client, { kind = 'solo', name = '' } = {}) {
+  const { rows } = await client.query(
+    `INSERT INTO organizations (kind, name, trial_ends_at)
+     VALUES ($1, $2, now() + make_interval(days => $3))
+     RETURNING id`,
+    [kind, name, TRIAL_DAYS]
+  );
+  return rows[0].id;
 }
 
 // A new master and everything their page needs to exist: a profile row (so
@@ -129,12 +147,15 @@ const DEFAULT_WEEK = [
   [6, true, '10:00', '16:00'],
 ];
 
-export async function createMaster(client, { slug, timezone, currency, languages, defaultLang, displayName }) {
+export async function createMaster(
+  client,
+  { organizationId, slug, timezone, currency, languages, defaultLang, displayName }
+) {
   const { rows } = await client.query(
-    `INSERT INTO masters (slug, timezone, currency, languages, default_lang, trial_ends_at)
-     VALUES ($1, $2, $3, $4, $5, now() + make_interval(days => $6))
+    `INSERT INTO masters (organization_id, slug, timezone, currency, languages, default_lang)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id`,
-    [slug, timezone, currency, languages, defaultLang, TRIAL_DAYS]
+    [organizationId, slug, timezone, currency, languages, defaultLang]
   );
   const masterId = rows[0].id;
 
@@ -157,16 +178,17 @@ export async function createMaster(client, { slug, timezone, currency, languages
   return masterId;
 }
 
-// Removes a master and everything they own. The foreign keys cascade from
-// `masters`, but a booked zone is protected (booking_items → services is
-// RESTRICT), and Postgres checks that before it has cascaded away the
+// Removes an organization and everything it owns: its masters, their
+// bookings, its price list and its logins. The foreign keys cascade from
+// `organizations`, but a booked zone is protected (booking_items → services
+// is RESTRICT), and Postgres checks that before it has cascaded away the
 // bookings' items — so the bookings go first, in the same transaction.
-export async function deleteMaster(masterId) {
+export async function deleteOrganization(organizationId) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('DELETE FROM bookings WHERE master_id = $1', [masterId]);
-    await client.query('DELETE FROM masters WHERE id = $1', [masterId]);
+    await client.query('DELETE FROM bookings WHERE organization_id = $1', [organizationId]);
+    await client.query('DELETE FROM organizations WHERE id = $1', [organizationId]);
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');

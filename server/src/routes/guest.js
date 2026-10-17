@@ -106,17 +106,17 @@ guestRouter.get('/categories', asyncHandler(async (req, res) => {
   const { rows: categories } = await pool.query(
     `SELECT id, slug, name_en, name_ru, name_hy,
             description_en, description_ru, description_hy, is_hourly
-     FROM service_categories WHERE master_id = $1 AND is_active = true
+     FROM service_categories WHERE organization_id = $1 AND is_active = true
      ORDER BY sort_order, id`,
-    [req.master.id]
+    [req.master.organization_id]
   );
 
   const { rows: services } = await pool.query(
     `SELECT ${GUEST_SERVICE_COLUMNS}
      FROM services s
      JOIN service_categories c ON c.id = s.category_id
-     WHERE s.master_id = $1 AND s.is_active = true ORDER BY s.sort_order, s.id`,
-    [req.master.id]
+     WHERE s.organization_id = $1 AND s.is_active = true ORDER BY s.sort_order, s.id`,
+    [req.master.organization_id]
   );
 
   const byCategory = new Map(categories.map((c) => [c.id, []]));
@@ -143,8 +143,8 @@ guestRouter.get('/services', asyncHandler(async (req, res) => {
     `SELECT ${GUEST_SERVICE_COLUMNS}
      FROM services s
      JOIN service_categories c ON c.id = s.category_id
-     WHERE s.master_id = $1 AND s.is_active = true ORDER BY s.sort_order, s.id`,
-    [req.master.id]
+     WHERE s.organization_id = $1 AND s.is_active = true ORDER BY s.sort_order, s.id`,
+    [req.master.organization_id]
   );
   res.json(rows);
 }));
@@ -158,7 +158,7 @@ guestRouter.get('/services/:id/slots', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'invalid_service_id' });
   }
 
-  const service = await getActiveService(req.master.id, serviceId);
+  const service = await getActiveService(req.master, serviceId);
   if (!service) {
     return res.status(404).json({ error: 'service_not_found' });
   }
@@ -266,7 +266,7 @@ guestRouter.post('/bookings', bookingLimit, requireOpenPage, asyncHandler(async 
 
   // One zone or several — a single-zone booking is just a basket of one.
   const rawItems = req.body?.items ?? [{ serviceId: req.body?.serviceId, durationMinutes: req.body?.durationMinutes }];
-  const resolved = await resolveItems(master.id, rawItems, { requireActive: true });
+  const resolved = await resolveItems(master, rawItems, { requireActive: true });
   if (resolved.error) {
     const status = resolved.error === 'service_not_found' ? 404 : 400;
     return res.status(status).json({ error: resolved.error });
@@ -300,7 +300,7 @@ guestRouter.post('/bookings', bookingLimit, requireOpenPage, asyncHandler(async 
   let bookingId;
   try {
     await client.query('BEGIN');
-    bookingId = await insertBookingWithItems(client, master.id, {
+    bookingId = await insertBookingWithItems(client, master, {
       startTime,
       endTime,
       customerName,

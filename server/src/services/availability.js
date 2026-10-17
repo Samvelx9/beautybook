@@ -75,14 +75,14 @@ export async function isSlotWithinAvailability(master, date, startUtc, endUtc) {
 // `is_hourly` comes from the zone's treatment: it decides whether the row's
 // price is a flat price or an hourly rate, so every caller that prices or
 // times a booking needs it alongside the service itself.
-export async function getActiveService(masterId, serviceId) {
+export async function getActiveService(master, serviceId) {
   const { rows } = await pool.query(
     `SELECT s.id, s.slug, s.name_en, s.name_ru, s.name_hy, s.duration_minutes,
             s.price, c.is_hourly
      FROM services s
      JOIN service_categories c ON c.id = s.category_id
-     WHERE s.master_id = $1 AND s.id = $2 AND s.is_active = true`,
-    [masterId, serviceId]
+     WHERE s.organization_id = $1 AND s.id = $2 AND s.is_active = true`,
+    [master.organization_id, serviceId]
   );
   return rows[0] || null;
 }

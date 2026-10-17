@@ -143,9 +143,9 @@ export const TEMPLATES = {
 
 export const TEMPLATE_KEYS = Object.keys(TEMPLATES);
 
-// Adds a template's treatments and zones to a master's price list. Names are
-// filled only in the languages the master offers. A treatment whose slug the
-// master already has is skipped rather than duplicated, so applying the same
+// Adds a template's treatments and zones to the price list of a master's
+// organization. Names are filled only in the languages the master offers. A
+// treatment whose slug the list already has is skipped rather than duplicated, so applying the same
 // template twice is harmless.
 export async function applyTemplate(client, master, key) {
   const template = TEMPLATES[key];
@@ -154,8 +154,8 @@ export async function applyTemplate(client, master, key) {
   const names = (item) => ['en', 'ru', 'hy'].map((l) => (langs.includes(l) ? item[l] : ''));
 
   const { rows: sortRows } = await client.query(
-    'SELECT COALESCE(MAX(sort_order), 0) AS max FROM service_categories WHERE master_id = $1',
-    [master.id]
+    'SELECT COALESCE(MAX(sort_order), 0) AS max FROM service_categories WHERE organization_id = $1',
+    [master.organization_id]
   );
   let sortOrder = Number(sortRows[0].max);
   let added = 0;
@@ -163,22 +163,22 @@ export async function applyTemplate(client, master, key) {
   for (const treatment of template.treatments) {
     sortOrder += 1;
     const { rows } = await client.query(
-      `INSERT INTO service_categories (master_id, slug, name_en, name_ru, name_hy, sort_order, is_hourly)
+      `INSERT INTO service_categories (organization_id, slug, name_en, name_ru, name_hy, sort_order, is_hourly)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (master_id, slug) DO NOTHING
+       ON CONFLICT (organization_id, slug) DO NOTHING
        RETURNING id`,
-      [master.id, treatment.slug, ...names(treatment), sortOrder, Boolean(treatment.hourly)]
+      [master.organization_id, treatment.slug, ...names(treatment), sortOrder, Boolean(treatment.hourly)]
     );
     if (!rows[0]) continue;
     added += 1;
 
     for (const [index, zone] of treatment.zones.entries()) {
       await client.query(
-        `INSERT INTO services (master_id, category_id, slug, name_en, name_ru, name_hy,
+        `INSERT INTO services (organization_id, category_id, slug, name_en, name_ru, name_hy,
                                duration_minutes, price, sort_order, is_active)
          VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, false)
-         ON CONFLICT (master_id, slug) DO NOTHING`,
-        [master.id, rows[0].id, `${treatment.slug}-${zone.slug}`, ...names(zone), zone.minutes, index + 1]
+         ON CONFLICT (organization_id, slug) DO NOTHING`,
+        [master.organization_id, rows[0].id, `${treatment.slug}-${zone.slug}`, ...names(zone), zone.minutes, index + 1]
       );
     }
   }

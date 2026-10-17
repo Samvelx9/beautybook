@@ -29,7 +29,7 @@ import { notifyGuest } from '../services/guestNotifications.js';
 import { BOOKING_WINDOW_CHOICES, MIN_NOTICE_CHOICES } from '../services/availability.js';
 import {
   accessSummary,
-  deleteMaster,
+  deleteOrganization,
   getMasterById,
   masterSiteUrl,
   newConnectToken,
@@ -41,8 +41,10 @@ import { readCurrency, readLanguages } from './auth.js';
 import { changeOwnPassword } from '../services/accounts.js';
 
 // A master's own admin panel. `requireMasterAuth` sets `req.master` from the
-// logged-in user, and every query below is scoped to `req.master.id` — an id
-// in a URL or body only ever names a row *within* that master's data.
+// logged-in user, and every query below is scoped to `req.master.id` — or, for
+// the price list, which the organization's masters share, to
+// `req.master.organization_id`. An id in a URL or body only ever names a row
+// *within* that data.
 export const adminRouter = Router();
 adminRouter.use(requireMasterAuth);
 
@@ -172,15 +174,17 @@ adminRouter.post('/account/password', asyncHandler(async (req, res) => {
   res.json({ token: result.token });
 }));
 
-// Deleting the account removes the master and everything they own (the
-// foreign keys cascade). Asks for the password again — it can't be undone.
+// Deleting the account removes the whole organization and everything it owns
+// (the foreign keys cascade), so only its owner may. Asks for the password
+// again — it can't be undone.
 adminRouter.delete('/account', asyncHandler(async (req, res) => {
+  if (req.user.role !== 'owner') return res.status(403).json({ error: 'not_owner' });
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   const { rows } = await pool.query('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
   if (!rows[0] || !(await bcrypt.compare(password, rows[0].password_hash))) {
     return res.status(403).json({ error: 'wrong_password' });
   }
-  await deleteMaster(req.master.id);
+  await deleteOrganization(req.master.organization_id);
   res.status(204).end();
 }));
 
@@ -207,11 +211,13 @@ adminRouter.delete('/telegram', asyncHandler(async (req, res) => {
   res.json(await accountBody(req));
 }));
 
-// A Lemon Squeezy checkout for this master's subscription.
+// A Lemon Squeezy checkout for the organization's subscription — the owner's
+// to take out.
 adminRouter.post('/billing/checkout', asyncHandler(async (req, res) => {
+  if (req.user.role !== 'owner') return res.status(403).json({ error: 'not_owner' });
   const appUrl = (process.env.PUBLIC_URL ?? '').replace(/\/$/, '');
   const result = await createCheckout({
-    master: req.master,
+    organizationId: req.master.organization_id,
     email: req.user.email,
     redirectUrl: `${appUrl}/#settings?billing=done`,
   });
@@ -335,8 +341,8 @@ const hasSomeName = (n) => Boolean(n.name_en || n.name_ru || n.name_hy);
 
 adminRouter.get('/categories', asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT ${CATEGORY_COLUMNS} FROM service_categories WHERE master_id = $1 ORDER BY sort_order, id`,
-    [req.master.id]
+    `SELECT ${CATEGORY_COLUMNS} FROM service_categories WHERE organization_id = $1 ORDER BY sort_order, id`,
+    [req.master.organization_id]
   );
   res.json(rows);
 }));
@@ -350,12 +356,12 @@ adminRouter.post('/categories', asyncHandler(async (req, res) => {
   try {
     const { rows } = await pool.query(
       `INSERT INTO service_categories
-         (master_id, slug, name_en, name_ru, name_hy, description_en, description_ru, description_hy,
-          sort_order, is_hourly)
+         (organization_id, slug, name_en, name_ru, name_hy, description_en, description_ru,
+          description_hy, sort_order, is_hourly)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING ${CATEGORY_COLUMNS}`,
       [
-        req.master.id,
+        req.master.organization_id,
         slug,
         names.name_en,
         names.name_ru,
@@ -411,11 +417,11 @@ adminRouter.patch('/categories/:id', asyncHandler(async (req, res) => {
 
   if (fields.length === 0) return res.status(400).json({ error: 'no_fields_to_update' });
 
-  values.push(id, req.master.id);
+  values.push(id, req.master.organization_id);
   try {
     const { rows } = await pool.query(
       `UPDATE service_categories SET ${fields.join(', ')}
-       WHERE id = $${values.length - 1} AND master_id = $${values.length}
+       WHERE id = $${values.length - 1} AND organization_id = $${values.length}
        RETURNING ${CATEGORY_COLUMNS}`,
       values
     );
@@ -434,8 +440,8 @@ adminRouter.delete('/categories/:id', asyncHandler(async (req, res) => {
 
   try {
     const { rowCount } = await pool.query(
-      'DELETE FROM service_categories WHERE id = $1 AND master_id = $2',
-      [id, req.master.id]
+      'DELETE FROM service_categories WHERE id = $1 AND organization_id = $2',
+      [id, req.master.organization_id]
     );
     if (rowCount === 0) return res.status(404).json({ error: 'category_not_found' });
     res.status(204).end();
@@ -459,9 +465,9 @@ adminRouter.get('/services', asyncHandler(async (req, res) => {
     `SELECT ${SERVICE_COLUMNS_WITH_MODE}
      FROM services s
      JOIN service_categories c ON c.id = s.category_id
-     WHERE s.master_id = $1
+     WHERE s.organization_id = $1
      ORDER BY s.sort_order, s.id`,
-    [req.master.id]
+    [req.master.organization_id]
   );
   res.json(rows);
 }));
@@ -485,12 +491,12 @@ adminRouter.post('/services', asyncHandler(async (req, res) => {
   try {
     const { rows } = await pool.query(
       `INSERT INTO services
-         (master_id, slug, category_id, name_en, name_ru, name_hy, duration_minutes, price,
+         (organization_id, slug, category_id, name_en, name_ru, name_hy, duration_minutes, price,
           sort_order, is_active)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING ${SERVICE_COLUMNS}`,
       [
-        req.master.id,
+        req.master.organization_id,
         slug,
         category_id,
         names.name_en,
@@ -544,12 +550,12 @@ adminRouter.patch('/services/:id', asyncHandler(async (req, res) => {
 
   if (fields.length === 0) return res.status(400).json({ error: 'no_fields_to_update' });
 
-  values.push(id, req.master.id);
+  values.push(id, req.master.organization_id);
   let rows;
   try {
     ({ rows } = await pool.query(
       `UPDATE services SET ${fields.join(', ')}
-       WHERE id = $${values.length - 1} AND master_id = $${values.length}
+       WHERE id = $${values.length - 1} AND organization_id = $${values.length}
        RETURNING ${SERVICE_COLUMNS}`,
       values
     ));
@@ -568,9 +574,9 @@ adminRouter.delete('/services/:id', asyncHandler(async (req, res) => {
   if (id === null) return res.status(400).json({ error: 'invalid_service_id' });
 
   try {
-    const { rowCount } = await pool.query('DELETE FROM services WHERE id = $1 AND master_id = $2', [
+    const { rowCount } = await pool.query('DELETE FROM services WHERE id = $1 AND organization_id = $2', [
       id,
-      req.master.id,
+      req.master.organization_id,
     ]);
     if (rowCount === 0) return res.status(404).json({ error: 'service_not_found' });
     res.status(204).end();
@@ -796,7 +802,7 @@ adminRouter.post('/bookings', asyncHandler(async (req, res) => {
   // A master may book a zone they've since hidden — the price list moving on
   // shouldn't stop them recording what they actually did.
   const rawItems = req.body?.items ?? [{ serviceId: req.body?.serviceId, durationMinutes: req.body?.durationMinutes }];
-  const resolved = await resolveItems(master.id, rawItems, { requireActive: false });
+  const resolved = await resolveItems(master, rawItems, { requireActive: false });
   if (resolved.error) {
     const httpStatus = resolved.error === 'service_not_found' ? 404 : 400;
     return res.status(httpStatus).json({ error: resolved.error });
@@ -808,7 +814,7 @@ adminRouter.post('/bookings', asyncHandler(async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const bookingId = await insertBookingWithItems(client, master.id, {
+    const bookingId = await insertBookingWithItems(client, master, {
       startTime,
       endTime,
       customerName,
@@ -868,7 +874,7 @@ adminRouter.patch('/bookings/:id', asyncHandler(async (req, res) => {
   // request touched.
   let resolved = null;
   if (req.body?.items !== undefined) {
-    resolved = await resolveItems(master.id, req.body.items, { requireActive: false });
+    resolved = await resolveItems(master, req.body.items, { requireActive: false });
     if (resolved.error) {
       const httpStatus = resolved.error === 'service_not_found' ? 404 : 400;
       return res.status(httpStatus).json({ error: resolved.error });
@@ -903,7 +909,7 @@ adminRouter.patch('/bookings/:id', asyncHandler(async (req, res) => {
        WHERE id = $${values.length - 1} AND master_id = $${values.length}`,
       values
     );
-    if (resolved) await replaceItems(client, master.id, id, resolved.items);
+    if (resolved) await replaceItems(client, master, id, resolved.items);
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');

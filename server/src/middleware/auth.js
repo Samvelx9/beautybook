@@ -26,7 +26,8 @@ async function authenticate(req) {
   }
 
   const { rows } = await pool.query(
-    'SELECT id, master_id, email, is_platform_admin, token_version FROM users WHERE id = $1',
+    `SELECT id, master_id, organization_id, role, email, is_platform_admin, token_version
+     FROM users WHERE id = $1`,
     [Number(claims.sub)]
   );
   const user = rows[0];

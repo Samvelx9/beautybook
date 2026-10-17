@@ -24,9 +24,10 @@ async function claimDueBookings() {
       WHERE id IN (
         SELECT b.id FROM bookings b
           JOIN masters m ON m.id = b.master_id
+          JOIN organizations o ON o.id = m.organization_id
          WHERE b.status = 'confirmed'
            AND m.telegram_chat_id IS NOT NULL
-           AND m.suspended_at IS NULL
+           AND o.suspended_at IS NULL
            AND b.end_time <= now()
            AND b.end_time > now() - interval '1 day'
            AND (b.completion_asked_at IS NULL OR b.completion_asked_at < b.end_time)

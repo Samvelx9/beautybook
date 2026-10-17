@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { pool } from '../db.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 import { requirePlatformAdmin } from '../middleware/auth.js';
-import { accessSummary, masterSiteUrl, MASTER_COLUMNS } from '../services/masters.js';
+import { accessSummary, masterSiteUrl, MASTER_COLUMNS, MASTER_FROM } from '../services/masters.js';
 import { changeOwnPassword } from '../services/accounts.js';
 import { getPlatformSettings, updatePlatformSettings } from '../services/platformSettings.js';
 
@@ -22,8 +22,9 @@ platformRouter.get('/masters', asyncHandler(async (_req, res) => {
             (SELECT COUNT(*)::int FROM bookings b WHERE b.master_id = m.id) AS bookings_total,
             (SELECT COUNT(*)::int FROM bookings b
               WHERE b.master_id = m.id AND b.created_at > now() - interval '30 days') AS bookings_30d,
-            (SELECT COUNT(*)::int FROM services s WHERE s.master_id = m.id AND s.is_active) AS active_services
-     FROM masters m
+            (SELECT COUNT(*)::int FROM services s
+              WHERE s.organization_id = m.organization_id AND s.is_active) AS active_services
+     FROM ${MASTER_FROM}
      LEFT JOIN users u ON u.master_id = m.id
      LEFT JOIN salon_profile p ON p.master_id = m.id
      ORDER BY m.created_at DESC`
@@ -70,19 +71,23 @@ const idParam = (req) => {
 };
 
 // { suspended: bool } | { extendTrialDays: n } | { customDomain: "x.com" | null }
+//
+// Suspension and the trial belong to the master's organization — for a salon
+// they switch every one of its masters at once. The domain is the master's own.
 platformRouter.patch('/masters/:id', asyncHandler(async (req, res) => {
   const id = idParam(req);
   if (id === null) return res.status(400).json({ error: 'invalid_master_id' });
 
-  const fields = [];
-  const values = [];
-  const set = (sql, value) => {
-    values.push(value);
-    fields.push(sql.replace('?', `$${values.length}`));
+  // One UPDATE per table, each with its own parameters; `$1` is the master id.
+  const org = { fields: [], values: [id] };
+  const master = { fields: [], values: [id] };
+  const set = (target, sql, value) => {
+    target.values.push(value);
+    target.fields.push(sql.replace('?', `$${target.values.length}`));
   };
 
   if (req.body?.suspended !== undefined) {
-    fields.push(req.body.suspended ? 'suspended_at = now()' : 'suspended_at = NULL');
+    org.fields.push(req.body.suspended ? 'suspended_at = now()' : 'suspended_at = NULL');
   }
   if (req.body?.extendTrialDays !== undefined) {
     const days = Number(req.body.extendTrialDays);
@@ -91,7 +96,7 @@ platformRouter.patch('/masters/:id', asyncHandler(async (req, res) => {
     }
     // From whichever is later — now or the current end — so extending an
     // expired trial gives the full number of days.
-    set('trial_ends_at = GREATEST(trial_ends_at, now()) + make_interval(days => ?)', days);
+    set(org, 'trial_ends_at = GREATEST(trial_ends_at, now()) + make_interval(days => ?)', days);
   }
   if (req.body?.customDomain !== undefined) {
     const domain = req.body.customDomain
@@ -100,20 +105,37 @@ platformRouter.patch('/masters/:id', asyncHandler(async (req, res) => {
     if (domain && !/^([a-z0-9-]+\.)+[a-z]{2,}$/.test(domain)) {
       return res.status(400).json({ error: 'invalid_domain' });
     }
-    set('custom_domain = ?', domain);
+    set(master, 'custom_domain = ?', domain);
   }
-  if (fields.length === 0) return res.status(400).json({ error: 'no_fields_to_update' });
+  if (org.fields.length === 0 && master.fields.length === 0) {
+    return res.status(400).json({ error: 'no_fields_to_update' });
+  }
 
-  values.push(id);
+  const client = await pool.connect();
   try {
-    const { rowCount } = await pool.query(
-      `UPDATE masters SET ${fields.join(', ')} WHERE id = $${values.length}`,
-      values
-    );
-    if (rowCount === 0) return res.status(404).json({ error: 'master_not_found' });
+    await client.query('BEGIN');
+    const { rowCount } = await client.query('SELECT 1 FROM masters WHERE id = $1', [id]);
+    if (rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'master_not_found' });
+    }
+    if (org.fields.length) {
+      await client.query(
+        `UPDATE organizations SET ${org.fields.join(', ')}
+          WHERE id = (SELECT organization_id FROM masters WHERE id = $1)`,
+        org.values
+      );
+    }
+    if (master.fields.length) {
+      await client.query(`UPDATE masters SET ${master.fields.join(', ')} WHERE id = $1`, master.values);
+    }
+    await client.query('COMMIT');
   } catch (err) {
+    await client.query('ROLLBACK');
     if (err.code === '23505') return res.status(409).json({ error: 'domain_taken' });
     throw err;
+  } finally {
+    client.release();
   }
   res.json({ ok: true });
 }));
@@ -149,7 +171,7 @@ platformRouter.get('/masters/:id', asyncHandler(async (req, res) => {
             p.address_en, p.address_ru, p.address_hy,
             (p.photo_data IS NOT NULL) AS has_photo,
             (p.about_en <> '' OR p.about_ru <> '' OR p.about_hy <> '') AS has_about
-     FROM masters m
+     FROM ${MASTER_FROM}
      LEFT JOIN users u ON u.master_id = m.id
      LEFT JOIN salon_profile p ON p.master_id = m.id
      WHERE m.id = $1`,
@@ -163,8 +185,8 @@ platformRouter.get('/masters/:id', asyncHandler(async (req, res) => {
   // brought in (at the price they were booked at).
   const { rows: categories } = await pool.query(
     `SELECT id, name_en, name_ru, name_hy, is_active, is_hourly, sort_order
-     FROM service_categories WHERE master_id = $1 ORDER BY sort_order, id`,
-    [id]
+     FROM service_categories WHERE organization_id = $1 ORDER BY sort_order, id`,
+    [m.organization_id]
   );
   const { rows: services } = await pool.query(
     `SELECT s.id, s.category_id, s.name_en, s.name_ru, s.name_hy, s.duration_minutes, s.price,
@@ -174,11 +196,11 @@ platformRouter.get('/masters/:id', asyncHandler(async (req, res) => {
             COALESCE(SUM(i.price_at_booking) FILTER (WHERE b.status = 'completed'), 0)::bigint AS revenue
      FROM services s
      LEFT JOIN booking_items i ON i.service_id = s.id
-     LEFT JOIN bookings b ON b.id = i.booking_id
-     WHERE s.master_id = $1
+     LEFT JOIN bookings b ON b.id = i.booking_id AND b.master_id = $2
+     WHERE s.organization_id = $1
      GROUP BY s.id
      ORDER BY s.sort_order, s.id`,
-    [id]
+    [m.organization_id, id]
   );
   const byCategory = new Map(categories.map((c) => [c.id, { ...c, services: [] }]));
   for (const s of services) {

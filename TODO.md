@@ -42,7 +42,7 @@ Most urgent first. What's already built is in [DONE.md](DONE.md).
 - [ ] **Custom domains for masters**: today the operator sets the domain, but DNS, the
       certificate and an nginx server block are manual. Automate the certificate (HTTP-01
       per domain) and the nginx config.
-- [ ] **Several specialists per salon** — one account currently means one calendar.
+- [ ] **Salons: several masters, one administrator** — the plan below, phase by phase.
 - [ ] Master can change their page address and login email.
 - [ ] Platform: delete a master (today only the master can delete their own account).
 - [ ] Export of a master's bookings and clients (CSV).
@@ -50,6 +50,48 @@ Most urgent first. What's already built is in [DONE.md](DONE.md).
 - [ ] Platform overview: sign-ups per week, trial → paid conversion, revenue.
 - [ ] Photos: stored in Postgres (fine for hundreds of masters); move to object storage
       before that becomes thousands.
+
+## Salons
+
+A salon is an organization with several masters and an owner (the salon's
+administrator, who may also be one of its masters). An individual master is an
+organization of one. Decided: one shared price list per salon; the owner manages
+everything (every master's bookings, hours, days off, the price list); the owner
+gets a Telegram message for every booking in the salon; guests may pick a master
+or book "any available master".
+
+Pricing per month, by active masters: 1–5 **$30**, 6–10 **$50**, 11+ **$80**;
+individual masters keep the current price.
+
+- [x] **Phase 1 — data model.** `organizations` holds billing, suspension and the
+      price list; masters, logins (`role`: owner | master), bookings and booking
+      zones point at it, with composite foreign keys keeping a booking inside its
+      organization's price list. Every existing master became a solo organization
+      with the same id. No change in behaviour.
+- [ ] **Phase 2 — salon backend.**
+  - [ ] Which services each master performs (`master_services`); "any master"
+        depends on it.
+  - [ ] Owner routes `/api/salon/masters/:masterId/...` reusing the admin
+        handlers (bookings, hours, blocks, profile) after checking the master is
+        in the owner's organization; a combined bookings view across masters.
+  - [ ] Add / deactivate a master, reset their password (temporary password shown
+        once, like the operator's reset); the owner can give themselves a calendar.
+  - [ ] Salon masters: the price list is read-only, no billing, no account deletion.
+  - [ ] Expenses and financials at salon level (per master as a filter).
+  - [ ] Owner's own Telegram chat, notified of every booking in the salon.
+- [ ] **Phase 3 — sign-up and admin UI.** Sign-up asks "individual master or
+      salon"; salon screens: Masters, all-masters Bookings (filter / a column per
+      master), salon profile, price list with who-does-what.
+- [ ] **Phase 4 — guest side.** A salon page at `<salon slug>.<domain>`: services →
+      "any master" or a chosen one → slots. "Any" shows the union of the
+      qualified masters' free slots and assigns a free one when booking (retry on
+      a lost race). Masters' own pages keep working. Salon and master slugs share
+      one namespace.
+- [ ] **Phase 5 — pricing.** Tier prices in `platform_settings`; a Lemon Squeezy
+      variant per tier; adding the 6th / 11th master (or dropping below) switches
+      the subscription's variant through the API.
+- [ ] **Phase 6 — operator.** Organizations list (type, tier, masters, billing
+      state) and an organization's page with its masters.
 
 ## 4. Engineering
 

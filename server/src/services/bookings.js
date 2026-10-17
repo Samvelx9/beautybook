@@ -69,12 +69,12 @@ export async function getBookingForGuest({ id, token }) {
 // the order they were chosen, each with its own duration and price, plus the
 // totals the booking itself carries. Everything is priced from the database
 // rather than from the request, so a client can't name its own price — and
-// only from this master's own price list.
+// only from the price list of this master's own organization.
 //
 // `requireActive` is the difference between a guest booking (only zones on sale)
 // and one the master enters themselves (anything in the price list, including
 // a zone since hidden).
-export async function resolveItems(masterId, rawItems, { requireActive = true } = {}) {
+export async function resolveItems(master, rawItems, { requireActive = true } = {}) {
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
     return { error: 'missing_items' };
   }
@@ -94,8 +94,8 @@ export async function resolveItems(masterId, rawItems, { requireActive = true } 
     `SELECT s.id, s.duration_minutes, s.price, s.is_active, c.is_hourly
      FROM services s
      JOIN service_categories c ON c.id = s.category_id
-     WHERE s.master_id = $1 AND s.id = ANY($2::int[])`,
-    [masterId, ids]
+     WHERE s.organization_id = $1 AND s.id = ANY($2::int[])`,
+    [master.organization_id, ids]
   );
   const byId = new Map(rows.map((row) => [row.id, row]));
 
@@ -138,7 +138,7 @@ export async function resolveItems(masterId, rawItems, { requireActive = true } 
 // whole thing.
 export async function insertBookingWithItems(
   client,
-  masterId,
+  master,
   {
     startTime, endTime, customerName, customerPhone, status, totalPrice, items,
     requestKey, guestToken, guestLang,
@@ -147,30 +147,35 @@ export async function insertBookingWithItems(
   const { rows } = await client.query(
     // The cast is required: without it Postgres types the parameter as text and
     // refuses to assign it to the booking_status enum column.
-    `INSERT INTO bookings (master_id, start_time, end_time, customer_name, customer_phone, status,
-                           price_at_booking, request_key, guest_token, guest_lang)
-     VALUES ($1, $2, $3, $4, $5, COALESCE($6::booking_status, 'confirmed'), $7, $8, $9, $10)
+    `INSERT INTO bookings (master_id, organization_id, start_time, end_time, customer_name,
+                           customer_phone, status, price_at_booking, request_key, guest_token,
+                           guest_lang)
+     VALUES ($1, $11, $2, $3, $4, $5, COALESCE($6::booking_status, 'confirmed'), $7, $8, $9, $10)
      RETURNING id`,
     [
-      masterId, startTime, endTime, customerName, customerPhone, status ?? null, totalPrice,
-      requestKey ?? null, guestToken ?? null, guestLang ?? null,
+      master.id, startTime, endTime, customerName, customerPhone, status ?? null, totalPrice,
+      requestKey ?? null, guestToken ?? null, guestLang ?? null, master.organization_id,
     ]
   );
   const bookingId = rows[0].id;
-  await replaceItems(client, masterId, bookingId, items);
+  await replaceItems(client, master, bookingId, items);
   return bookingId;
 }
 
-export async function replaceItems(client, masterId, bookingId, items) {
+export async function replaceItems(client, master, bookingId, items) {
   await client.query('DELETE FROM booking_items WHERE booking_id = $1 AND master_id = $2', [
     bookingId,
-    masterId,
+    master.id,
   ]);
   for (const item of items) {
     await client.query(
-      `INSERT INTO booking_items (booking_id, master_id, service_id, duration_minutes, price_at_booking, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [bookingId, masterId, item.service_id, item.duration_minutes, item.price_at_booking, item.sort_order]
+      `INSERT INTO booking_items (booking_id, master_id, organization_id, service_id,
+                                  duration_minutes, price_at_booking, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        bookingId, master.id, master.organization_id, item.service_id, item.duration_minutes,
+        item.price_at_booking, item.sort_order,
+      ]
     );
   }
 }

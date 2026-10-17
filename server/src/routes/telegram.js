@@ -10,7 +10,7 @@ import {
   COMPLETION_ANSWERS,
 } from '../services/telegram.js';
 import { handleGuestCallback, handleGuestMessage } from '../services/guestNotifications.js';
-import { MASTER_COLUMNS, masterSiteUrl } from '../services/masters.js';
+import { MASTER_COLUMNS, MASTER_FROM, masterSiteUrl } from '../services/masters.js';
 
 export const telegramRouter = Router();
 
@@ -22,7 +22,7 @@ function hasValidSecret(req, token) {
 
 async function masterByChat(chatId) {
   const { rows } = await pool.query(
-    `SELECT ${MASTER_COLUMNS} FROM masters m WHERE m.telegram_chat_id = $1`,
+    `SELECT ${MASTER_COLUMNS} FROM ${MASTER_FROM} WHERE m.telegram_chat_id = $1`,
     [chatId]
   );
   return rows[0] ?? null;
@@ -34,7 +34,8 @@ async function connectMaster(message, token) {
   const chatId = message.chat.id;
   const { rows } = await pool.query(
     `UPDATE masters m SET telegram_chat_id = $2, telegram_connect_token = NULL
-      WHERE telegram_connect_token = $1
+       FROM organizations o
+      WHERE m.telegram_connect_token = $1 AND o.id = m.organization_id
       RETURNING ${MASTER_COLUMNS}`,
     [token, chatId]
   );

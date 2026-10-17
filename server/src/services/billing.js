@@ -2,9 +2,10 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { pool } from '../db.js';
 
 // Subscriptions through Lemon Squeezy (merchant of record: it handles cards,
-// VAT and receipts). Every master gets a free trial at sign-up with no card;
+// VAT and receipts). Every organization gets a free trial at sign-up with no card;
 // subscribing opens a Lemon Squeezy checkout, and from then on Lemon Squeezy's
-// webhooks are the only thing that changes a master's subscription columns.
+// webhooks are the only thing that changes an organization's subscription
+// columns. An organization is what pays: a solo master's, or a salon's.
 //
 // Configuration, all from the environment:
 //   LEMONSQUEEZY_API_KEY         API key (Settings → API)
@@ -22,10 +23,10 @@ export function billingConfig() {
   return apiKey && storeId && variantId ? { apiKey, storeId, variantId } : null;
 }
 
-// A checkout link for this master. The master's id rides along as custom data,
+// A checkout link for this organization. Its id rides along as custom data,
 // which Lemon Squeezy hands back in every webhook about the subscription —
-// that's how a payment finds its master.
-export async function createCheckout({ master, email, redirectUrl }) {
+// that's how a payment finds who it's for.
+export async function createCheckout({ organizationId, email, redirectUrl }) {
   const config = billingConfig();
   if (!config) return { error: 'billing_not_configured' };
 
@@ -40,7 +41,7 @@ export async function createCheckout({ master, email, redirectUrl }) {
       data: {
         type: 'checkouts',
         attributes: {
-          checkout_data: { email, custom: { master_id: String(master.id) } },
+          checkout_data: { email, custom: { organization_id: String(organizationId) } },
           product_options: { redirect_url: redirectUrl },
         },
         relationships: {
@@ -82,8 +83,17 @@ const SUBSCRIPTION_EVENTS = new Set([
   'subscription_payment_recovered',
 ]);
 
+// The organization a webhook is about. Checkouts made before salons existed
+// carry `master_id` instead; every such master got a solo organization with
+// the same id, so the one number serves for both.
+function organizationIdOf(payload) {
+  const custom = payload?.meta?.custom_data ?? {};
+  const id = Number(custom.organization_id ?? custom.master_id);
+  return Number.isInteger(id) ? id : null;
+}
+
 // Applies one webhook. Every subscription event carries the subscription's
-// full current state, so each one simply overwrites the master's columns with
+// full current state, so each one simply overwrites the organization's columns with
 // it — no event depends on having seen the one before, and a replayed or
 // out-of-order delivery can only ever restore a state Lemon Squeezy really had.
 // Payment events carry an invoice rather than the subscription, so they're
@@ -91,35 +101,34 @@ const SUBSCRIPTION_EVENTS = new Set([
 // does the work.
 export async function applyWebhook(payload) {
   const eventName = payload?.meta?.event_name;
-  const masterId = Number(payload?.meta?.custom_data?.master_id);
   const data = payload?.data;
-  const knownMaster = Number.isInteger(masterId) ? masterId : null;
+  const organizationId = organizationIdOf(payload);
 
   await pool.query(
-    `INSERT INTO billing_events (master_id, event_name, payload)
-     SELECT $1, $2, $3 WHERE $1::int IS NULL OR EXISTS (SELECT 1 FROM masters WHERE id = $1)`,
-    [knownMaster, String(eventName ?? 'unknown'), payload]
+    `INSERT INTO billing_events (organization_id, event_name, payload)
+     SELECT $1, $2, $3 WHERE $1::int IS NULL OR EXISTS (SELECT 1 FROM organizations WHERE id = $1)`,
+    [organizationId, String(eventName ?? 'unknown'), payload]
   );
 
-  if (!SUBSCRIPTION_EVENTS.has(eventName) || data?.type !== 'subscriptions' || !knownMaster) {
+  if (!SUBSCRIPTION_EVENTS.has(eventName) || data?.type !== 'subscriptions' || !organizationId) {
     return;
   }
 
   const a = data.attributes ?? {};
   await pool.query(
-    `UPDATE masters SET
+    `UPDATE organizations SET
        subscription_status = $2,
        ls_subscription_id = $3,
        ls_customer_id = $4,
        period_ends_at = $5,
        customer_portal_url = $6
      WHERE id = $1
-       -- A master who subscribed twice: news about an old, dead subscription
+       -- An organization that subscribed twice: news about an old, dead subscription
        -- mustn't overwrite the live one.
        AND (ls_subscription_id IS NULL OR ls_subscription_id = $3
             OR $2 IN ('active', 'on_trial', 'past_due'))`,
     [
-      knownMaster,
+      organizationId,
       a.status ?? null,
       String(data.id),
       a.customer_id != null ? String(a.customer_id) : null,

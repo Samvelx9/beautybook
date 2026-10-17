@@ -7,7 +7,7 @@ import { rateLimit } from '../lib/rateLimit.js';
 import { isValidTimeZone, DEFAULT_TIMEZONE } from '../lib/time.js';
 import { signToken } from '../middleware/auth.js';
 import { MIN_PASSWORD_LENGTH } from '../services/accounts.js';
-import { createMaster, getMasterById, slugProblem } from '../services/masters.js';
+import { createMaster, createOrganization, getMasterById, slugProblem } from '../services/masters.js';
 import { applyTemplate, templateList, TEMPLATES } from '../services/templates.js';
 import { getPlatformSettings } from '../services/platformSettings.js';
 
@@ -59,7 +59,8 @@ authRouter.get('/platform', asyncHandler(async (_req, res) => {
 }));
 
 // POST /api/auth/signup — a new master, their login, their (empty) page and a
-// free trial, all in one transaction. Answers with a session token so the new
+// free trial, all in one transaction. An individual master signs up as the
+// owner of an organization of one. Answers with a session token so the new
 // master lands straight in their admin panel.
 authRouter.post('/signup', signupLimit, asyncHandler(async (req, res) => {
   const email = cleanString(req.body?.email, 200).toLowerCase();
@@ -91,7 +92,9 @@ authRouter.post('/signup', signupLimit, asyncHandler(async (req, res) => {
   let user;
   try {
     await client.query('BEGIN');
+    const organizationId = await createOrganization(client, { kind: 'solo' });
     const masterId = await createMaster(client, {
+      organizationId,
       slug,
       timezone,
       currency,
@@ -101,9 +104,10 @@ authRouter.post('/signup', signupLimit, asyncHandler(async (req, res) => {
     });
     await client.query('UPDATE masters SET notify_lang = $2 WHERE id = $1', [masterId, notifyLang]);
     const { rows } = await client.query(
-      `INSERT INTO users (master_id, email, password_hash) VALUES ($1, $2, $3)
+      `INSERT INTO users (organization_id, master_id, role, email, password_hash)
+       VALUES ($1, $2, 'owner', $3, $4)
        RETURNING id, token_version`,
-      [masterId, email, passwordHash]
+      [organizationId, masterId, email, passwordHash]
     );
     user = rows[0];
 

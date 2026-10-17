@@ -360,7 +360,10 @@ test('financials and expenses stay per master', async () => {
 });
 
 test('an expired trial closes the page to bookings but not the admin', async () => {
-  await db.query(`UPDATE masters SET trial_ends_at = now() - interval '1 day' WHERE slug = 'bella'`);
+  await db.query(
+    `UPDATE organizations SET trial_ends_at = now() - interval '1 day'
+      WHERE id = (SELECT organization_id FROM masters WHERE slug = 'bella')`
+  );
 
   assert.equal((await call('GET', '/site', { slug: 'bella' })).body.open, false);
   const closed = await call('POST', '/bookings', {
@@ -677,4 +680,52 @@ test('each master sets how far ahead clients can book, and the API enforces it',
 
   // Other masters keep their own window.
   assert.equal((await call('GET', '/site', { slug: 'anna' })).body.bookingWindowDays, 7);
+});
+
+test("the database keeps a booking to its own organization's price list", async () => {
+  const { rows } = await db.query(
+    `SELECT b.id AS booking_id, b.master_id, b.organization_id,
+            (SELECT s.id FROM services s WHERE s.organization_id <> b.organization_id LIMIT 1) AS foreign_service
+     FROM bookings b JOIN masters m ON m.id = b.master_id WHERE m.slug = 'bella' LIMIT 1`
+  );
+  const b = rows[0];
+  assert.ok(b.foreign_service, 'another organization has a service to try');
+  await assert.rejects(
+    db.query(
+      `INSERT INTO booking_items (booking_id, master_id, organization_id, service_id, duration_minutes, price_at_booking)
+       VALUES ($1, $2, $3, $4, 30, 0)`,
+      [b.booking_id, b.master_id, b.organization_id, b.foreign_service]
+    ),
+    { code: '23503' }
+  );
+});
+
+test('only the owner can delete the organization or subscribe', async () => {
+  // A salon's master: their own calendar in the owner's organization. There's
+  // no API to add one yet, so they're written in directly.
+  const owner = await signup('salon-owner');
+  const { rows } = await db.query(
+    `SELECT m.id, m.organization_id FROM masters m WHERE m.slug = 'salon-owner'`
+  );
+  const bcrypt = (await import('bcryptjs')).default;
+  await db.query(
+    `INSERT INTO users (organization_id, master_id, role, email, password_hash)
+     VALUES ($1, $2, 'master', 'staff@example.com', $3)`,
+    [rows[0].organization_id, rows[0].id, bcrypt.hashSync('staff password 1', 4)]
+  );
+  const staff = (await call('POST', '/auth/login', {
+    body: { email: 'staff@example.com', password: 'staff password 1' },
+  })).body.token;
+
+  assert.equal((await call('GET', '/admin/bookings', { token: staff })).status, 200);
+  const del = await call('DELETE', '/admin/account', { token: staff, body: { password: 'staff password 1' } });
+  assert.equal(del.status, 403);
+  assert.equal(del.body.error, 'not_owner');
+  assert.equal((await call('POST', '/admin/billing/checkout', { token: staff })).body.error, 'not_owner');
+
+  // The owner deleting the organization takes the staff login with it.
+  const gone = await call('DELETE', '/admin/account', { token: owner, body: { password: 'correct horse battery' } });
+  assert.equal(gone.status, 204);
+  const { rows: left } = await db.query(`SELECT COUNT(*)::int AS n FROM users WHERE email = 'staff@example.com'`);
+  assert.equal(left[0].n, 0);
 });

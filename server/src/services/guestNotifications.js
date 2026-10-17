@@ -480,10 +480,11 @@ async function claimDue({ column, due }) {
       WHERE id IN (
         SELECT b.id FROM bookings b
           JOIN masters m ON m.id = b.master_id
+          JOIN organizations o ON o.id = m.organization_id
          WHERE b.status = 'confirmed'
            AND b.guest_chat_id IS NOT NULL
            AND b.${column} IS DISTINCT FROM b.start_time
-           AND m.suspended_at IS NULL
+           AND o.suspended_at IS NULL
            AND EXTRACT(hour FROM now() AT TIME ZONE m.timezone) BETWEEN 9 AND 20
            AND ${due}
          ORDER BY b.start_time
