@@ -11,6 +11,7 @@ import {
   createMaster,
   createOrganization,
   getOrganizationById,
+  isSlugTaken,
   slugProblem,
 } from '../services/masters.js';
 import { applyTemplate, templateList, TEMPLATES } from '../services/templates.js';
@@ -42,13 +43,13 @@ export function readCurrency(raw) {
   return /^[A-Z]{3}$/.test(currency) ? currency : null;
 }
 
-// GET /api/auth/slug?slug=anna — is this address free?
+// GET /api/auth/slug?slug=anna — is this address free? Masters' and salons'
+// pages share one set of addresses.
 authRouter.get('/slug', slugLimit, asyncHandler(async (req, res) => {
   const slug = String(req.query.slug ?? '').toLowerCase();
   const problem = slugProblem(slug);
   if (problem) return res.json({ available: false, reason: problem });
-  const { rows } = await pool.query('SELECT 1 FROM masters WHERE slug = $1', [slug]);
-  res.json(rows[0] ? { available: false, reason: 'slug_taken' } : { available: true });
+  res.json((await isSlugTaken(slug)) ? { available: false, reason: 'slug_taken' } : { available: true });
 }));
 
 // GET /api/auth/templates — the starter price lists sign-up offers.
@@ -69,14 +70,16 @@ authRouter.get('/platform', asyncHandler(async (_req, res) => {
 //
 // - accountType "master" (the default): an individual master, the owner of an
 //   organization of one, with their own (empty) page.
-// - accountType "salon": a salon and its owner, who adds the masters next. The
-//   owner may be one of them from the start: sending `slug` and `displayName`
-//   gives them a calendar and page of their own too.
+// - accountType "salon": a salon, with its own page at `salonSlug`, and its
+//   owner, who adds the masters next. The owner may be one of them from the
+//   start: sending `slug` and `displayName` gives them a calendar and page of
+//   their own too.
 authRouter.post('/signup', signupLimit, asyncHandler(async (req, res) => {
   const isSalon = req.body?.accountType === 'salon';
   const email = cleanString(req.body?.email, 200).toLowerCase();
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   const salonName = cleanString(req.body?.salonName, 100);
+  const salonSlug = cleanString(req.body?.salonSlug, 40).toLowerCase();
   const slug = cleanString(req.body?.slug, 40).toLowerCase();
   const displayName = cleanString(req.body?.displayName, 100);
   const timezone = req.body?.timezone ?? DEFAULT_TIMEZONE;
@@ -94,6 +97,11 @@ authRouter.post('/signup', signupLimit, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'weak_password', minLength: MIN_PASSWORD_LENGTH });
   }
   if (isSalon && !salonName) return res.status(400).json({ error: 'missing_salon_name' });
+  if (isSalon) {
+    const problem = slugProblem(salonSlug);
+    if (problem) return res.status(400).json({ error: problem });
+    if (withCalendar && slug === salonSlug) return res.status(409).json({ error: 'slug_taken' });
+  }
   if (withCalendar) {
     const problem = slugProblem(slug);
     if (problem) return res.status(400).json({ error: problem });
@@ -113,6 +121,7 @@ authRouter.post('/signup', signupLimit, asyncHandler(async (req, res) => {
     const organizationId = await createOrganization(client, {
       kind: isSalon ? 'salon' : 'solo',
       name: isSalon ? salonName : '',
+      slug: isSalon ? salonSlug : null,
       notifyLang,
       ...locale,
     });

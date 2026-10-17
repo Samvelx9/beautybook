@@ -193,8 +193,9 @@ export default function App() {
   if (account.platformOnly) {
     tabs = ['platform', 'settings'];
   } else if (isSalonOwner) {
+    // The landing page tab is there from the start: the salon's own page.
     tabs = ['dashboard', ...(hasCalendars ? ['bookings'] : []), 'masters', 'categories', 'services',
-            ...(hasCalendars ? ['availability', 'profile'] : []), 'taxes', 'settings'];
+            ...(hasCalendars ? ['availability'] : []), 'profile', 'taxes', 'settings'];
   } else if (isSalon) {
     // A salon's master: their own calendar; the price list is the owner's.
     tabs = ['dashboard', 'bookings', 'availability', 'profile', 'settings'];
@@ -210,15 +211,18 @@ export default function App() {
   }
 
   // The calendar the screens act on. Others' logins: their own. A salon's
-  // owner: the master they picked — 'all' only makes sense for bookings, so
-  // elsewhere it falls back to the owner's own calendar or the first master.
+  // owner: the master they picked. 'all' only makes sense for bookings and
+  // 'salon' (the salon page) only for the landing page; elsewhere the pick
+  // falls back to the owner's own calendar or the first master.
   let calendar = null;
-  if (isSalonOwner && hasCalendars) {
-    const fallback = salonMasters.find((m) => m.isOwner)?.id ?? salonMasters[0].id;
-    const picked = calendarChoice === 'all' || salonMasters.some((m) => m.id === calendarChoice)
+  if (isSalonOwner) {
+    const fallback = salonMasters.find((m) => m.isOwner)?.id ?? salonMasters[0]?.id ?? 'salon';
+    let picked = ['all', 'salon'].includes(calendarChoice) || salonMasters.some((m) => m.id === calendarChoice)
       ? calendarChoice
       : fallback;
-    calendar = picked === 'all' && current !== 'bookings' ? fallback : picked;
+    if (picked === 'all' && current !== 'bookings') picked = current === 'profile' ? 'salon' : fallback;
+    if (picked === 'salon' && current !== 'profile') picked = fallback;
+    calendar = picked;
   }
   setCalendar(calendar);
   const calendarMaster = typeof calendar === 'number' ? salonMasters.find((m) => m.id === calendar) : null;
@@ -245,12 +249,13 @@ export default function App() {
       onLogout={auth.logout}
       account={account}
     >
-      {isSalonOwner && CALENDAR_TABS.includes(current) && hasCalendars && (
+      {isSalonOwner && CALENDAR_TABS.includes(current) && (hasCalendars || current === 'profile') && (
         <MasterPicker
           T={T}
           masters={salonMasters}
           value={calendar}
           allowAll={current === 'bookings'}
+          allowSalon={current === 'profile'}
           onChange={pickCalendar}
         />
       )}

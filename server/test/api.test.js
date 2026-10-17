@@ -743,6 +743,7 @@ async function signupSalon(name, extra = {}) {
     body: {
       accountType: 'salon',
       salonName: name,
+      salonSlug: `${name.toLowerCase()}-salon`,
       email: `${name.toLowerCase()}@salon.example`,
       password: 'correct horse battery',
       languages: ['ru', 'en'],
@@ -791,7 +792,7 @@ test('a salon signs up; its owner runs it without a calendar of their own', asyn
   // A salon needs a name.
   const nameless = await call('POST', '/auth/signup', {
     headers: SALON_IP,
-    body: { accountType: 'salon', email: 'x@salon.example', password: 'correct horse battery' },
+    body: { accountType: 'salon', salonSlug: 'nameless-salon', email: 'x@salon.example', password: 'correct horse battery' },
   });
   assert.equal(nameless.body.error, 'missing_salon_name');
 });
@@ -1163,4 +1164,100 @@ test('an individual master pays their own taxes', async () => {
   });
   const f = (await call('GET', `/admin/financials?from=${date}&to=${date}`, { token })).body;
   assert.deepEqual([f.income.total, f.taxes.total, f.taxes.mastersPay, f.net], [10000, 500, 0, 9500]);
+});
+
+test("a salon's own page: its masters, any-master slots and booking, salon-wide lookup", async () => {
+  const owner = await signupSalon('Tulip', { templates: ['nails'] });
+  const [s1, s2] = (await call('GET', '/admin/services', { token: owner })).body;
+  for (const s of [s1, s2]) {
+    await call('PATCH', `/admin/services/${s.id}`, { token: owner, body: { isActive: true, price: 7000, durationMinutes: 60 } });
+  }
+  const add = async (key) =>
+    (await call('POST', '/salon/masters', {
+      token: owner,
+      body: { slug: `tulip-${key}`, displayName: `Tulip ${key}`, email: `tulip-${key}@salon.example` },
+    })).body.master.id;
+  const x = await add('x');
+  const y = await add('y');
+  await call('PATCH', `/salon/masters/${x}`, { token: owner, body: { serviceIds: [s1.id] } });
+
+  // Salon and master pages share one set of addresses.
+  assert.equal((await call('GET', '/auth/slug?slug=tulip-salon')).body.reason, 'slug_taken');
+  const clash = await call('POST', '/salon/masters', {
+    token: owner,
+    body: { slug: 'tulip-salon', displayName: 'Z', email: 'tulip-z@salon.example' },
+  });
+  assert.equal(clash.body.error, 'slug_taken');
+  assert.equal((await call('PATCH', '/salon', { token: owner, body: { slug: 'tulip-x' } })).body.error, 'slug_taken');
+
+  // The landing page is the salon's own.
+  await call('PUT', '/salon/profile', { token: owner, body: { aboutEn: 'Two masters, one address.' } });
+  const page = 'tulip-salon';
+  assert.equal((await call('GET', '/profile', { slug: page })).body.aboutEn, 'Two masters, one address.');
+  assert.equal((await call('GET', '/profile', { slug: 'tulip-x' })).body.aboutEn, '');
+
+  const site = (await call('GET', '/site', { slug: page })).body;
+  assert.equal(site.kind, 'salon');
+  assert.equal(site.open, true);
+  assert.deepEqual(site.masters.map((m) => m.id), [x, y]);
+
+  const cats = (await call('GET', '/categories', { slug: page })).body;
+  const offered = new Map(cats.flatMap((c) => c.services).map((s) => [s.id, s.masterIds]));
+  assert.deepEqual(offered.get(s1.id), [x, y]);
+  assert.deepEqual(offered.get(s2.id), [y]);
+  assert.equal((await call('GET', '/hours', { slug: page })).body.length, 7);
+  assert.equal((await call('GET', `/services/${s1.id}/slots`, { slug: page })).body.error, 'master_required');
+
+  const daySlots = async (serviceIds, master) => {
+    const q = master ? `&master=${master}` : `&serviceIds=${serviceIds.join(',')}`;
+    const { body } = await call('GET', `/slots?durationMinutes=60${q}`, { slug: page });
+    return body.days.find((d) => d.date === date).slots;
+  };
+  assert.ok((await daySlots([s2.id])).includes('12:00'));
+
+  const book = (serviceId, time, master) =>
+    call('POST', `/bookings${master ? `?master=${master}` : ''}`, {
+      slug: page,
+      body: { date, time, customerName: 'Rose guest', customerPhone: '+37499000001', items: [{ serviceId }] },
+    });
+
+  // Only Y does s2: any-master goes to Y, and once Y is taken there's nobody.
+  const first = await book(s2.id, '12:00');
+  assert.equal(first.status, 201, JSON.stringify(first.body));
+  assert.equal(first.body.masterId, y);
+  assert.equal((await book(s2.id, '12:00')).body.error, 'slot_taken');
+  assert.ok(!(await daySlots([s2.id])).includes('12:00'));
+  // s1 at 12:00 is still open with X.
+  assert.ok((await daySlots([s1.id])).includes('12:00'));
+  const second = await book(s1.id, '12:00');
+  assert.equal(second.body.masterId, x);
+  assert.equal((await book(s1.id, '12:00')).body.error, 'slot_taken');
+
+  // A guest who picks a master gets that master's page, rules and all.
+  assert.equal((await book(s2.id, '15:00', x)).body.error, 'service_not_found');
+  const picked = await book(s2.id, '15:00', y);
+  assert.equal(picked.body.masterId, y);
+  assert.ok(!(await daySlots(null, y)).includes('15:00'));
+  const { rows: annaRows } = await db.query(`SELECT id FROM masters WHERE slug = 'anna'`);
+  assert.equal((await call('GET', `/site?master=${annaRows[0].id}`, { slug: page })).status, 404);
+
+  // Looking up, cancelling and the calendar file work across the salon.
+  const found = (await call('POST', '/bookings/lookup', { slug: page, body: { phone: '+37499000001' } })).body;
+  assert.deepEqual(found.map((b) => b.master_id).sort(), [x, y, y].sort());
+  const ics = await fetch(`${BASE}/calendar/${first.body.guestToken}.ics`, {
+    headers: { 'X-Forwarded-Host': `${page}.${DOMAIN}` },
+  });
+  assert.equal(ics.status, 200);
+  const cancelled = await call('POST', `/bookings/${second.body.id}/cancel`, {
+    slug: page,
+    body: { phone: '+37499000001' },
+  });
+  assert.equal(cancelled.status, 200, JSON.stringify(cancelled.body));
+  assert.equal((await book(s1.id, '12:00')).body.masterId, x);
+
+  // Another salon's page doesn't know these visits.
+  assert.equal(
+    (await call('POST', `/bookings/${first.body.id}/cancel`, { slug: 'iris-salon', body: { phone: '+37499000001' } })).status,
+    404
+  );
 });

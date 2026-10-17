@@ -1,12 +1,16 @@
 import LangSwitcher from './LangSwitcher.jsx';
 import ZoneList from './ZoneList.jsx';
 import { CalendarIcon, SendIcon } from './Icons.jsx';
-import { formatDateAt, formatPrice } from '../i18n.js';
+import { formatDateAt, formatPrice, localName } from '../i18n.js';
 import { splitLocalDateTime } from '../lib/time.js';
 import { rem } from '../lib/rem.js';
 
 export default function ConfirmationScreen(f) {
   const { T, lang, activeBooking } = f;
+  // On a salon's page, who the visit is with.
+  const masterName = f.isSalon && activeBooking.masterId
+    ? localName(f.masterById(activeBooking.masterId), lang)
+    : null;
   const { dateObj, time } = splitLocalDateTime(activeBooking.startTime);
   const dateTimeSummary = formatDateAt(dateObj, time, lang);
 
@@ -45,6 +49,12 @@ export default function ConfirmationScreen(f) {
               <span style={{ fontSize: rem(13), color: 'var(--muted)' }}>{T.summaryService}</span>
               <ZoneList items={activeBooking.items} lang={lang} />
             </div>
+            {masterName && (
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: rem(13), color: 'var(--muted)' }}>{T.summaryMaster}</span>
+                <span style={{ fontSize: rem(13), fontWeight: 600 }}>{masterName}</span>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ fontSize: rem(13), color: 'var(--muted)' }}>{T.summaryWhen}</span>
               <span style={{ fontSize: rem(13), fontWeight: 600 }}>{dateTimeSummary}</span>

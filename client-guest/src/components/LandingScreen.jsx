@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { splitLocalDateTime } from '../lib/time.js';
 import { formatPrice, WEEKDAY_FULL, localName, PRODUCT_NAME, PLATFORM_DOMAIN } from '../i18n.js';
 import { BasketBar } from './ServicesScreen.jsx';
+import { MasterAvatar } from './MasterScreen.jsx';
 import {
   telHref,
   whatsappHref,
@@ -163,10 +164,27 @@ export default function LandingScreen(f) {
 
       {/* --------------------------------------------------------------- about */}
       {about && (
-        <Section title={T.aboutMe}>
+        <Section title={f.isSalon ? T.aboutUs : T.aboutMe}>
           <p style={{ margin: 0, fontSize: rem(14.5), lineHeight: 1.75, color: 'var(--ink)', whiteSpace: 'pre-line' }}>
             {about}
           </p>
+        </Section>
+      )}
+
+      {/* ------------------------------------------------- a salon's masters */}
+      {f.isSalon && f.site.masters.length > 0 && (
+        <Section title={T.ourMasters}>
+          <div style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 4 }}>
+            {f.site.masters.map((m) => {
+              const name = localName(m, lang) || m.slug;
+              return (
+                <div key={m.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, width: 76, flexShrink: 0 }}>
+                  <MasterAvatar master={m} name={name} size={64} />
+                  <span style={{ fontSize: rem(12.5), textAlign: 'center', lineHeight: 1.3 }}>{name}</span>
+                </div>
+              );
+            })}
+          </div>
         </Section>
       )}
 
@@ -243,7 +261,7 @@ export default function LandingScreen(f) {
 
       {/* ----------------------------------------------------- address & hours */}
       {(address || openDays.length > 0) && (
-        <Section title={T.whereToFindMe}>
+        <Section title={f.isSalon ? T.whereToFindUs : T.whereToFindMe}>
           {address && (
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
               <span

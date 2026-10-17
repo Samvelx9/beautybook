@@ -40,14 +40,19 @@ const json = (method, body) => ({ method, body: JSON.stringify(body) });
 // Whose calendar the calendar calls below (landing page, hours, days off,
 // bookings) act on. null: the login's own, at /api/admin. A salon's owner picks
 // one of the salon's masters by id — /api/salon/masters/:id, the same routes —
-// or 'all' for the bookings list across every master. Set synchronously by
+// 'all' for the bookings list across every master, or 'salon' for the salon
+// page's own landing page. Set synchronously by
 // App before the screens render, like the auth token.
 let calendar = null;
 export function setCalendar(masterId) {
   calendar = masterId;
 }
-const cal = (path, masterId = calendar) =>
-  typeof masterId === 'number' ? `/salon/masters/${masterId}${path}` : `/admin${path}`;
+// 'salon' is the salon page itself, for its landing page (/salon/profile).
+const cal = (path, masterId = calendar) => {
+  if (typeof masterId === 'number') return `/salon/masters/${masterId}${path}`;
+  if (masterId === 'salon') return `/salon${path}`;
+  return `/admin${path}`;
+};
 
 function query(params) {
   const qs = new URLSearchParams();

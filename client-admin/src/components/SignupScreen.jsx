@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import LangSwitcher from './LangSwitcher.jsx';
 import { api, ApiError } from '../api.js';
 import { LANG_META, LANG_ORDER, PLATFORM_DOMAIN, PRODUCT_NAME } from '../i18n.js';
 import { CURRENCIES, browserTimeZone, guessCurrency, timeZones } from '../options.js';
-import { suggestSlug } from '../slug.js';
+import { suggestSlug, useSlugStatus } from '../slug.js';
 
 function Field({ id, label, hint, children }) {
   return (
@@ -22,6 +22,7 @@ export default function SignupScreen({ T, lang, setLang, go, onSignedUp }) {
     // also work as one of its masters (`ownerIsMaster`).
     accountType: 'master',
     salonName: '',
+    salonSlug: '',
     ownerIsMaster: false,
     displayName: '',
     slug: '',
@@ -35,11 +36,12 @@ export default function SignupScreen({ T, lang, setLang, go, onSignedUp }) {
   });
   // Once the address has been typed by hand, the name no longer rewrites it.
   const [slugEdited, setSlugEdited] = useState(false);
-  const [slugStatus, setSlugStatus] = useState(null); // null | 'checking' | 'ok' | error code
+  const [salonSlugEdited, setSalonSlugEdited] = useState(false);
+  const slugStatus = useSlugStatus(form.slug);
+  const salonSlugStatus = useSlugStatus(form.accountType === 'salon' ? form.salonSlug : '');
   const [templates, setTemplates] = useState([]);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const slugRequest = useRef(0);
 
   const set = (fields) => setForm((prev) => ({ ...prev, ...fields }));
 
@@ -47,24 +49,6 @@ export default function SignupScreen({ T, lang, setLang, go, onSignedUp }) {
     api.getTemplates().then(setTemplates).catch(() => setTemplates([]));
   }, []);
 
-  // Asks whether the address is free a moment after typing stops; only the
-  // newest answer counts.
-  useEffect(() => {
-    if (!form.slug) {
-      setSlugStatus(null);
-      return undefined;
-    }
-    setSlugStatus('checking');
-    const id = slugRequest.current + 1;
-    slugRequest.current = id;
-    const timer = setTimeout(() => {
-      api
-        .checkSlug(form.slug)
-        .then((r) => slugRequest.current === id && setSlugStatus(r.available ? 'ok' : r.reason))
-        .catch(() => slugRequest.current === id && setSlugStatus(null));
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [form.slug]);
 
   function onNameChange(value) {
     set(slugEdited ? { displayName: value } : { displayName: value, slug: suggestSlug(value) });
@@ -92,6 +76,8 @@ export default function SignupScreen({ T, lang, setLang, go, onSignedUp }) {
     const isSalon = form.accountType === 'salon';
     const withPage = !isSalon || form.ownerIsMaster;
     if (isSalon && !form.salonName.trim()) return setError('missing_salon_name');
+    if (isSalon && salonSlugStatus && !['ok', 'checking'].includes(salonSlugStatus)) return setError(salonSlugStatus);
+    if (isSalon && withPage && form.slug === form.salonSlug) return setError('slug_taken');
     if (withPage && !form.displayName.trim()) return setError('missing_display_name');
     if (form.password.length < 8) return setError('weak_password');
     if (withPage && slugStatus && slugStatus !== 'ok' && slugStatus !== 'checking') return setError(slugStatus);
@@ -99,6 +85,7 @@ export default function SignupScreen({ T, lang, setLang, go, onSignedUp }) {
     // A salon's owner without a page of their own sends neither name nor address.
     const payload = { ...form, notifyLang: lang };
     delete payload.ownerIsMaster;
+    if (!isSalon) delete payload.salonSlug;
     if (!withPage) {
       delete payload.displayName;
       delete payload.slug;
@@ -170,7 +157,27 @@ export default function SignupScreen({ T, lang, setLang, go, onSignedUp }) {
           {form.accountType === 'salon' && (
             <>
               <Field id="su-salon" label={T.salonNameLabel}>
-                <input id="su-salon" className="field-input" value={form.salonName} onChange={(e) => set({ salonName: e.target.value })} />
+                <input
+                  id="su-salon"
+                  className="field-input"
+                  value={form.salonName}
+                  onChange={(e) =>
+                    set(salonSlugEdited
+                      ? { salonName: e.target.value }
+                      : { salonName: e.target.value, salonSlug: suggestSlug(e.target.value) })
+                  }
+                />
+              </Field>
+              <Field id="su-salon-slug" label={T.salonSlugLabel}>
+                <SlugInput
+                  id="su-salon-slug"
+                  value={form.salonSlug}
+                  onChange={(v) => {
+                    setSalonSlugEdited(true);
+                    set({ salonSlug: v });
+                  }}
+                />
+                <span style={{ fontSize: 12.5, minHeight: 16 }}><SlugMessage T={T} status={salonSlugStatus} /></span>
               </Field>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
                 <input type="checkbox" checked={form.ownerIsMaster} onChange={(e) => set({ ownerIsMaster: e.target.checked })} />
@@ -308,4 +315,28 @@ export default function SignupScreen({ T, lang, setLang, go, onSignedUp }) {
       </div>
     </div>
   );
+}
+
+// A page address: the part the guest types, then the platform's domain.
+function SlugInput({ id, value, onChange }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--surface)', overflow: 'hidden' }}>
+      <input
+        id={id}
+        className="field-input"
+        style={{ border: 'none', borderRadius: 0, flex: 1, minWidth: 0 }}
+        value={value}
+        autoCapitalize="none"
+        spellCheck={false}
+        onChange={(e) => onChange(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40))}
+      />
+      <span style={{ padding: '0 12px', fontSize: 13.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>.{PLATFORM_DOMAIN}</span>
+    </div>
+  );
+}
+
+function SlugMessage({ T, status }) {
+  if (status === 'ok') return <span style={{ color: 'var(--sage)', fontWeight: 600 }}>✓ {T.slugAvailable}</span>;
+  if (status && status !== 'checking') return <span style={{ color: 'var(--terracotta)' }}>{T[status] ?? T.invalid_slug}</span>;
+  return null;
 }

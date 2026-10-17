@@ -21,6 +21,8 @@ import {
 import { getBotUsername, telegramToken } from '../services/telegram.js';
 import { EMAIL_PATTERN, readCurrency, readLanguages } from './auth.js';
 import { calendarRouter } from './calendar.js';
+import { profileRouter } from './profileRoutes.js';
+import { salonProfile } from '../services/profile.js';
 
 // A salon's owner running the salon: its masters, who does what, every
 // master's bookings in one list, and the owner's own Telegram chat.
@@ -77,6 +79,9 @@ async function salonBody(organizationId) {
     organization: {
       id: organization.id,
       name: organization.name,
+      slug: organization.slug,
+      // The salon's own booking page, once it has an address.
+      siteUrl: organization.slug ? masterSiteUrl(organization) : null,
       timezone: organization.timezone,
       currency: organization.currency,
       languages: organization.languages,
@@ -118,8 +123,8 @@ salonRouter.get('/', asyncHandler(async (req, res) => {
   res.json(await salonBody(req.organization.id));
 }));
 
-// { name, timezone, currency, languages, defaultLang, notifyLang,
-//   masterSharePercent } — the locale is copied onto every master; notifyLang
+// { name, slug, timezone, currency, languages, defaultLang, notifyLang,
+//   masterSharePercent } — slug is the salon page's address — the locale is copied onto every master; notifyLang
 // is the language of the owner's own Telegram chat; masterSharePercent is the
 // masters' share of each visit's income from now on.
 salonRouter.patch('/', asyncHandler(async (req, res) => {
@@ -135,6 +140,12 @@ salonRouter.patch('/', asyncHandler(async (req, res) => {
     const name = cleanString(req.body.name, 100);
     if (!name) return res.status(400).json({ error: 'missing_salon_name' });
     set('name', name);
+  }
+  if (req.body?.slug !== undefined) {
+    const slug = cleanString(req.body.slug, 40).toLowerCase();
+    const problem = slugProblem(slug);
+    if (problem) return res.status(400).json({ error: problem });
+    set('slug', slug);
   }
   if (req.body?.notifyLang !== undefined) {
     if (!LANGS.includes(req.body.notifyLang)) return res.status(400).json({ error: 'invalid_lang' });
@@ -177,12 +188,16 @@ salonRouter.patch('/', asyncHandler(async (req, res) => {
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
+    if (err.code === UNIQUE_VIOLATION) return res.status(409).json({ error: 'slug_taken' });
     throw err;
   } finally {
     client.release();
   }
   res.json(await salonBody(req.organization.id));
 }));
+
+// The salon page's landing content: /salon/profile, /salon/profile/photo.
+salonRouter.use(profileRouter((req) => salonProfile(req.organization.id)));
 
 // ---------------------------------------------------------------------------
 // Masters

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, ApiError } from './api.js';
+import { api, ApiError, setMaster } from './api.js';
 import { DEFAULT_LANG, STRINGS, setCurrency, setMinNotice, setSiteLanguages } from './i18n.js';
 import { MIN_BOOKING_MINUTES, MAX_BOOKING_MINUTES } from 'salon-shared/booking';
 import { setTimeZone } from 'salon-shared/time';
@@ -38,6 +38,9 @@ const INITIAL_FLOW_STATE = {
   manageOrigin: null,
   bannerErrorKey: null,
   busy: false,
+  // On a salon's page: the master the guest chose for this visit — a master's
+  // id, or 'any' for whichever is free. null until chosen.
+  masterChoice: null,
 };
 
 // The answers that mean "pick another time" rather than "something broke":
@@ -64,6 +67,9 @@ export function useBookingFlow() {
   const [flow, setFlow] = useState(INITIAL_FLOW_STATE);
 
   const T = STRINGS[lang];
+  // A salon's page: the guest chooses a master (or any) before the time.
+  const isSalon = site?.kind === 'salon';
+  const salonMasters = useMemo(() => site?.masters ?? [], [site]);
 
   // The landing page's three fetches go out together, and the price lists
   // arrive nested inside the categories — so the whole guest catalogue is
@@ -169,6 +175,17 @@ export function useBookingFlow() {
     };
   }, [flow.selectedServiceIds, flow.hourlyMinutes, servicesById]);
 
+  // On a salon's page, the masters who perform everything in the basket —
+  // the ones the guest may choose between, or "any" picks among.
+  const qualifiedMasters = useMemo(
+    () =>
+      salonMasters.filter((m) =>
+        basket.zones.every((z) => (z.service.masterIds ?? []).includes(m.id))
+      ),
+    [salonMasters, basket.zones]
+  );
+  const masterById = (id) => salonMasters.find((m) => m.id === id) ?? null;
+
   const patch = (fields) => setFlow((prev) => ({ ...prev, ...fields }));
 
   // Changing the length on the calendar screen re-asks for slots, and a tap can
@@ -198,7 +215,14 @@ export function useBookingFlow() {
       ...(keepDay ? {} : { selectedDayIndex: 0 }),
     });
     try {
-      const data = await api.getSlots({ excludeBookingId, durationMinutes });
+      // "Whichever master is free" asks for the slots of everyone who can do
+      // the whole basket.
+      const anyMaster = isSalon && flow.masterChoice === 'any' && !excludeBookingId;
+      const data = await api.getSlots({
+        excludeBookingId,
+        durationMinutes,
+        ...(anyMaster ? { serviceIds: flow.selectedServiceIds } : {}),
+      });
       if (slotRequestRef.current !== requestId) return;
       patch({ slotsData: data, slotsLoading: false });
     } catch {
@@ -255,10 +279,24 @@ export function useBookingFlow() {
   // here: the guest changes the length *on* that screen, so the list has to
   // follow the length, and one loader avoids the two racing.
   const continueToCalendar = () => {
+    if (isSalon) {
+      patch({ step: 'master', bannerErrorKey: null });
+      return;
+    }
     loadedForRef.current = null;
     patch({ step: 'calendar', bannerErrorKey: null });
   };
-  const backToServices = () => patch({ step: 'services' });
+  // On a salon's page: a master's id, or 'any'. From here on every request
+  // is about that master (none for 'any').
+  const chooseMaster = (choice) => {
+    setMaster(choice === 'any' ? null : choice);
+    loadedForRef.current = null;
+    patch({ masterChoice: choice, step: 'calendar', bannerErrorKey: null });
+  };
+  // Back from the calendar: to the master choice on a salon's page.
+  const backToServices = () =>
+    patch({ step: isSalon && flow.step === 'calendar' ? 'master' : 'services' });
+  const backToBasket = () => patch({ step: 'services' });
 
   // Reloads whenever the calendar is opened and whenever the length changes
   // while it's open.
@@ -330,6 +368,7 @@ export function useBookingFlow() {
           priceAtBooking: booking.priceAtBooking,
           guestToken: booking.guestToken,
           telegramLink: booking.telegramLink,
+          masterId: booking.masterId,
         },
         telegramOpened: false,
       });
@@ -346,6 +385,7 @@ export function useBookingFlow() {
   const markTelegramOpened = () => patch({ telegramOpened: true });
 
   function resetToStart() {
+    setMaster(null);
     setFlow({ ...INITIAL_FLOW_STATE });
   }
   const bookAnother = () => resetToStart();
@@ -385,6 +425,7 @@ export function useBookingFlow() {
         customerName: booking.customer_name,
         customerPhone: phone,
         priceAtBooking: booking.price_at_booking,
+        masterId: booking.master_id ?? null,
       },
     });
   }
@@ -392,6 +433,8 @@ export function useBookingFlow() {
   function goReschedule(origin) {
     patch({ step: 'reschedulePicker', manageOrigin: origin, bannerErrorKey: null });
     const booked = flow.activeBooking;
+    // A visit moves within its own master's calendar.
+    if (isSalon && booked.masterId) setMaster(booked.masterId);
     // Rescheduling keeps the length already booked, so the slot list has to be
     // asked for exactly that — not the zones' nominal durations.
     const minutes = Math.round((new Date(booked.endTime) - new Date(booked.startTime)) / 60000);
@@ -475,6 +518,11 @@ export function useBookingFlow() {
     T,
 
     site,
+    isSalon,
+    qualifiedMasters,
+    masterById,
+    chooseMaster,
+    backToBasket,
     profile,
     categories,
     hours,

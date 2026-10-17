@@ -39,6 +39,12 @@ function StepButton({ label, disabled, onClick }) {
 export default function CalendarScreen(f) {
   const { T, lang, backToServices, basket } = f;
   const zoneNames = basket.zones.map((z) => localName(z.service, lang)).join(' · ');
+  // On a salon's page, who the visit is with.
+  const withWhom = f.isSalon
+    ? f.masterChoice === 'any'
+      ? T.anyMaster
+      : localName(f.masterById(f.masterChoice), lang)
+    : null;
   const summary = `${formatDuration(basket.minutes, T.hourUnit, T.minUnit)} · ${formatPrice(basket.price, lang)}`;
   const hourlyZones = basket.zones.filter((z) => z.service.is_hourly);
 
@@ -59,7 +65,7 @@ export default function CalendarScreen(f) {
       <div style={{ padding: '0 24px 12px' }}>
         <SummaryBanner
           name={zoneNames}
-          subtitle={summary}
+          subtitle={withWhom ? `${summary} · ${withWhom}` : summary}
           actionLabel={T.change}
           onAction={backToServices}
         />

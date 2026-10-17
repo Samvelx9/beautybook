@@ -1,4 +1,4 @@
-import { Router, raw } from 'express';
+import { Router } from 'express';
 import { pool } from '../db.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 import { cleanString, isValidDate, isValidTime } from '../lib/validate.js';
@@ -10,13 +10,8 @@ import {
   insertBookingWithItems,
   replaceItems,
 } from '../services/bookings.js';
-import {
-  PROFILE_TEXT_COLUMNS,
-  getProfileRow,
-  shapeProfile,
-  maxLengthFor,
-  toCamel,
-} from '../services/profile.js';
+import { masterProfile } from '../services/profile.js';
+import { profileRouter } from './profileRoutes.js';
 import { notifyGuest } from '../services/guestNotifications.js';
 import { getMasterById } from '../services/masters.js';
 import { BOOKING_WINDOW_CHOICES, MIN_NOTICE_CHOICES } from '../services/availability.js';
@@ -32,7 +27,6 @@ export const calendarRouter = Router({ mergeParams: true });
 const CHECK_VIOLATION = '23514';
 const EXCLUSION_VIOLATION = '23P01';
 const BOOKING_STATUSES = ['confirmed', 'completed', 'cancelled', 'no_show'];
-const PHOTO_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 const idParam = (req) => {
   const id = Number(req.params.id);
@@ -43,71 +37,7 @@ const idParam = (req) => {
 // Profile (the guest landing page's content)
 // ---------------------------------------------------------------------------
 
-calendarRouter.get('/profile', asyncHandler(async (req, res) => {
-  const row = await getProfileRow(req.master.id);
-  if (!row) return res.status(404).json({ error: 'profile_not_found' });
-  res.json(shapeProfile(row));
-}));
-
-// Every field is optional and may legitimately be blank — this is free-form
-// copy, not validated business data — so a field simply omitted from the body
-// keeps its current value, and one sent empty is cleared.
-calendarRouter.put('/profile', asyncHandler(async (req, res) => {
-  const assignments = [];
-  const values = [];
-
-  for (const column of PROFILE_TEXT_COLUMNS) {
-    const sent = req.body?.[toCamel(column)];
-    if (sent === undefined) continue;
-    values.push(cleanString(sent, maxLengthFor(column)));
-    assignments.push(`${column} = $${values.length}`);
-  }
-
-  if (assignments.length === 0) {
-    return res.status(400).json({ error: 'no_fields_to_update' });
-  }
-
-  assignments.push('updated_at = now()');
-  values.push(req.master.id);
-  await pool.query(
-    `UPDATE salon_profile SET ${assignments.join(', ')} WHERE master_id = $${values.length}`,
-    values
-  );
-
-  res.json(shapeProfile(await getProfileRow(req.master.id)));
-}));
-
-// The image arrives as a raw body with its own Content-Type rather than as
-// multipart — one file, no other fields.
-calendarRouter.put(
-  '/profile/photo',
-  raw({ type: PHOTO_MIME_TYPES, limit: '4mb' }),
-  asyncHandler(async (req, res) => {
-    const mime = req.get('content-type');
-    if (!Buffer.isBuffer(req.body) || req.body.length === 0 || !PHOTO_MIME_TYPES.includes(mime)) {
-      return res.status(400).json({ error: 'invalid_image', accepts: PHOTO_MIME_TYPES });
-    }
-
-    await pool.query(
-      `UPDATE salon_profile
-       SET photo_mime = $1, photo_data = $2, photo_updated_at = now(), updated_at = now()
-       WHERE master_id = $3`,
-      [mime, req.body, req.master.id]
-    );
-
-    res.json(shapeProfile(await getProfileRow(req.master.id)));
-  })
-);
-
-calendarRouter.delete('/profile/photo', asyncHandler(async (req, res) => {
-  await pool.query(
-    `UPDATE salon_profile
-     SET photo_mime = NULL, photo_data = NULL, photo_updated_at = NULL, updated_at = now()
-     WHERE master_id = $1`,
-    [req.master.id]
-  );
-  res.json(shapeProfile(await getProfileRow(req.master.id)));
-}));
+calendarRouter.use(profileRouter((req) => masterProfile(req.master.id)));
 
 // ---------------------------------------------------------------------------
 // Availability

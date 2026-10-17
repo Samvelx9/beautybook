@@ -11,10 +11,12 @@ import ManageScreen from './components/ManageScreen.jsx';
 import ReschedulePickerScreen from './components/ReschedulePickerScreen.jsx';
 import CancelConfirmScreen from './components/CancelConfirmScreen.jsx';
 import CancelledScreen from './components/CancelledScreen.jsx';
+import MasterScreen from './components/MasterScreen.jsx';
 
 const SCREENS = {
   landing: LandingScreen,
   services: ServicesScreen,
+  master: MasterScreen,
   calendar: CalendarScreen,
   details: DetailsScreen,
   confirmation: ConfirmationScreen,

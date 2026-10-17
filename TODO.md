@@ -128,11 +128,19 @@ individual masters keep the current price.
         payments withheld from an employee), and on the salon's yearly profit.
   - [ ] A salon-wide day view: every master side by side as columns, for the
         front desk (today "All masters" is one list).
-- [ ] **Phase 4 — guest side.** A salon page at `<salon slug>.<domain>`: services →
-      "any master" or a chosen one → slots. "Any" shows the union of the
-      qualified masters' free slots and assigns a free one when booking (retry on
-      a lost race). Masters' own pages keep working. Salon and master slugs share
-      one namespace.
+- [x] **Phase 4 — guest side.** A salon page at `<salon slug>.<domain>` (chosen at
+      sign-up, editable in Settings; salon and master addresses are one namespace):
+      its own landing page (edited as "Salon page" on the Landing page tab), its
+      masters, the treatments its working masters perform, and their combined
+      hours. After the basket the guest chooses "any available master" or one of
+      the masters who do everything in it. "Any" shows the union of their free
+      times and books the least busy free one, trying the next if the slot is
+      lost. `?master=<id>` makes a salon page behave as that master's own page.
+      Phone lookup, cancel, reschedule and calendar files work across the salon;
+      masters' own pages keep working.
+  - [ ] A salon's own domain (today only masters can have one).
+  - [ ] Guest Telegram messages and manage links point at the master's page even
+        for a visit booked on the salon's page.
 - [ ] **Phase 5 — pricing.** Tier prices in `platform_settings`; a Lemon Squeezy
       variant per tier; adding the 6th / 11th master (or dropping below) switches
       the subscription's variant through the API.

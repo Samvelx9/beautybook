@@ -59,10 +59,13 @@ const LANG_SUFFIX = [
   { suffix: 'En', labelKey: 'inEnglish' },
 ];
 
-export default function ProfileScreen({ T, onAuthError, account, calendarMaster }) {
+export default function ProfileScreen({ T, onAuthError, account, salon, calendarMaster }) {
   // The page this landing page belongs to: the master a salon's owner is
-  // editing, or the login's own.
-  const siteUrl = calendarMaster?.siteUrl ?? account.master.siteUrl;
+  // editing, the salon page itself (no master picked), or the login's own.
+  const siteUrl = calendarMaster?.siteUrl ?? (salon ? salon.organization.siteUrl : account.master.siteUrl);
+  // On the salon page the name heading the page is the salon's.
+  const isSalonPage = Boolean(salon) && !calendarMaster;
+  const labelFor = (field) => T[isSalonPage && field.base === 'ownerName' ? 'salonNameLabel' : field.labelKey];
   const [profile, setProfile] = useState(null);
   const [form, setForm] = useState({});
   const [loading, setLoading] = useState(true);
@@ -266,7 +269,7 @@ export default function ProfileScreen({ T, onAuthError, account, calendarMaster 
           {section.fields.map((field) =>
             field.langs ? (
               <div key={field.base} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>{T[field.labelKey]}</span>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{labelFor(field)}</span>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                   {LANG_SUFFIX.filter(({ suffix }) => getMasterLanguages().includes(suffix.toLowerCase())).map(({ suffix, labelKey }) => (
                     <Field
@@ -282,7 +285,7 @@ export default function ProfileScreen({ T, onAuthError, account, calendarMaster 
             ) : (
               <Field
                 key={field.base}
-                label={T[field.labelKey]}
+                label={labelFor(field)}
                 multiline={field.multiline}
                 value={form[field.base] ?? ''}
                 onChange={(v) => setField(field.base, v)}

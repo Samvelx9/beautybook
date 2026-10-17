@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api.js';
-import { LANG_META, LANG_ORDER, formatDate, formatPlatformPrice } from '../i18n.js';
+import { LANG_META, LANG_ORDER, PLATFORM_DOMAIN, formatDate, formatPlatformPrice } from '../i18n.js';
 import { CURRENCIES, timeZones } from '../options.js';
 import ConfirmInline from './ConfirmInline.jsx';
 
@@ -135,7 +135,11 @@ export default function SettingsScreen({ T, lang, account, salon, refreshAccount
   // calendar's own, or for a salon's owner the salon chat's.
   const [region, setRegion] = useState({
     ...(isSalonOwner
-      ? { name: organization.name, masterSharePercent: salon?.organization.masterSharePercent ?? 40 }
+      ? {
+          name: organization.name,
+          slug: salon?.organization.slug ?? '',
+          masterSharePercent: salon?.organization.masterSharePercent ?? 40,
+        }
       : {}),
     languages: organization.languages,
     defaultLang: organization.defaultLang,
@@ -158,7 +162,12 @@ export default function SettingsScreen({ T, lang, account, salon, refreshAccount
     setBusy('region');
     try {
       if (isSalonOwner) {
-        await api.updateSalon({ ...region, masterSharePercent: Number(region.masterSharePercent) });
+        const { slug, ...rest } = region;
+        await api.updateSalon({
+          ...rest,
+          ...(slug ? { slug } : {}),
+          masterSharePercent: Number(region.masterSharePercent),
+        });
         await refreshSalon();
       } else if (isOwner) {
         await api.updateSettings(region);
@@ -277,6 +286,26 @@ export default function SettingsScreen({ T, lang, account, salon, refreshAccount
               {T.salonNameLabel}
               <input className="field-input" value={region.name} onChange={(e) => setRegion({ ...region, name: e.target.value })} />
             </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label htmlFor="salon-slug" style={{ fontSize: 12.5, color: 'var(--muted)' }}>{T.salonSlugLabel}</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--surface)', overflow: 'hidden', maxWidth: 360, flex: 1 }}>
+                  <input
+                    id="salon-slug"
+                    className="field-input"
+                    style={{ border: 'none', borderRadius: 0, flex: 1, minWidth: 0 }}
+                    value={region.slug}
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    onChange={(e) => setRegion({ ...region, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40) })}
+                  />
+                  <span style={{ padding: '0 10px', fontSize: 12.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>.{PLATFORM_DOMAIN}</span>
+                </div>
+                {salon?.organization.siteUrl && (
+                  <a className="btn-outline" href={salon.organization.siteUrl} target="_blank" rel="noreferrer">{T.openPage} ↗</a>
+                )}
+              </div>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <label htmlFor="master-share" style={{ fontSize: 12.5, color: 'var(--muted)' }}>{T.masterShareLabel}</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

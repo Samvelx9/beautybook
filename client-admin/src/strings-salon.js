@@ -11,6 +11,8 @@ export const SALON_STRINGS = {
     signupSalonTitle: 'Register your salon',
     signupSalonBtn: 'Create the salon',
     salonNameLabel: 'Salon name',
+    salonSlugLabel: 'Salon page address',
+    pickerSalonPage: 'Salon page (all masters)',
     ownerIsMasterLabel: 'I also work as a master here',
     missing_salon_name: 'Please enter the salon’s name.',
 
@@ -115,6 +117,8 @@ export const SALON_STRINGS = {
     signupSalonTitle: 'Зарегистрируйте салон',
     signupSalonBtn: 'Создать салон',
     salonNameLabel: 'Название салона',
+    salonSlugLabel: 'Адрес страницы салона',
+    pickerSalonPage: 'Страница салона (все мастера)',
     ownerIsMasterLabel: 'Я тоже работаю здесь мастером',
     missing_salon_name: 'Введите название салона.',
 
@@ -219,6 +223,8 @@ export const SALON_STRINGS = {
     signupSalonTitle: 'Գրանցեք ձեր սրահը',
     signupSalonBtn: 'Ստեղծել սրահը',
     salonNameLabel: 'Սրահի անվանումը',
+    salonSlugLabel: 'Սրահի էջի հասցեն',
+    pickerSalonPage: 'Սրահի էջը (բոլոր վարպետները)',
     ownerIsMasterLabel: 'Ես էլ եմ այստեղ աշխատում որպես վարպետ',
     missing_salon_name: 'Մուտքագրեք սրահի անվանումը։',
 

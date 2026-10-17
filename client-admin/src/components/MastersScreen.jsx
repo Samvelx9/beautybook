@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api.js';
 import { PLATFORM_DOMAIN, localName } from '../i18n.js';
-import { suggestSlug } from '../slug.js';
+import { suggestSlug, useSlugStatus } from '../slug.js';
 import ConfirmInline from './ConfirmInline.jsx';
 
 const muted = { margin: 0, fontSize: 13, lineHeight: 1.5, color: 'var(--muted)' };
@@ -129,26 +129,9 @@ function AddMasterForm({ T, title, hint, withEmail = false, onAdded, onError }) 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ displayName: '', slug: '', email: '' });
   const [slugEdited, setSlugEdited] = useState(false);
-  const [slugStatus, setSlugStatus] = useState(null);
+  const slugStatus = useSlugStatus(form.slug);
   const [saving, setSaving] = useState(false);
-  const slugRequest = useRef(0);
 
-  // Is the address free? Asked a moment after typing stops; the newest answer counts.
-  useEffect(() => {
-    if (!form.slug) {
-      setSlugStatus(null);
-      return undefined;
-    }
-    const id = slugRequest.current + 1;
-    slugRequest.current = id;
-    const timer = setTimeout(() => {
-      api
-        .checkSlug(form.slug)
-        .then((r) => slugRequest.current === id && setSlugStatus(r.available ? 'ok' : r.reason))
-        .catch(() => slugRequest.current === id && setSlugStatus(null));
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [form.slug]);
 
   async function submit(e) {
     e.preventDefault();

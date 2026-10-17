@@ -12,10 +12,23 @@ class ApiError extends Error {
   }
 }
 
+// On a salon's page, the master the guest picked: it rides along on every
+// request as ?master=<id>, and the API then answers exactly as on that
+// master's own page. null — the salon as a whole, or "whichever master is
+// free". Set by the booking flow.
+let master = null;
+export function setMaster(id) {
+  master = id ?? null;
+}
+function withMaster(path) {
+  if (master === null) return path;
+  return `${path}${path.includes('?') ? '&' : '?'}master=${master}`;
+}
+
 async function request(path, options = {}) {
   let res;
   try {
-    res = await fetch(`${API_BASE}${path}`, {
+    res = await fetch(`${API_BASE}${withMaster(path)}`, {
       headers: { 'Content-Type': 'application/json' },
       ...options,
     });
@@ -37,10 +50,12 @@ export const api = {
 
   getProfile: () => request('/profile'),
 
-  // The master's photo is served as raw bytes, not JSON — callers need the URL,
-  // not the body. `version` comes from the profile and busts the cache when
-  // she uploads a new photo.
-  photoUrl: (version) => `${API_BASE}/profile/photo?v=${version}`,
+  // The photo is served as raw bytes, not JSON — callers need the URL, not the
+  // body. `version` comes from the profile and busts the cache when a new
+  // photo is uploaded. Without `masterId`, the page's own photo (a salon's
+  // page: the salon's); with it, that master's, on a salon's page.
+  photoUrl: (version, masterId) =>
+    `${API_BASE}/profile/photo?v=${version}${masterId ? `&master=${masterId}` : ''}`,
 
   getCategories: () => request('/categories'),
 
@@ -49,10 +64,13 @@ export const api = {
   getServices: () => request('/services'),
 
   // Slots are asked for by length, not by zone: a visit can cover several zones
-  // and what decides which starts work is how long the whole thing runs.
-  getSlots: ({ excludeBookingId, durationMinutes } = {}) => {
+  // and what decides which starts work is how long the whole thing runs. On a
+  // salon's page with no master picked, `serviceIds` says which masters can
+  // take the visit — the slots are theirs, together.
+  getSlots: ({ excludeBookingId, durationMinutes, serviceIds } = {}) => {
     const params = new URLSearchParams({ durationMinutes });
     if (excludeBookingId) params.set('excludeBookingId', excludeBookingId);
+    if (serviceIds?.length) params.set('serviceIds', serviceIds.join(','));
     return request(`/slots?${params.toString()}`);
   },
 

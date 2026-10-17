@@ -41,15 +41,25 @@ export function platformDomain() {
   return (process.env.PLATFORM_DOMAIN ?? 'localhost').toLowerCase().replace(/^\.+|\.+$/g, '');
 }
 
-// The page a master's guests book on.
-export function masterSiteUrl(master) {
-  if (master.custom_domain) return `https://${master.custom_domain}`;
+// The page a master's guests book on — or, given an organization, the salon's
+// page. Both live at <slug>.<platform domain>.
+export function masterSiteUrl(page) {
+  if (page.custom_domain) return `https://${page.custom_domain}`;
   const domain = platformDomain();
   // A dev machine serves the guest app on Vite's port with *.localhost names.
   if (domain === 'localhost') {
-    return `http://${master.slug}.localhost:${process.env.GUEST_DEV_PORT ?? 5173}`;
+    return `http://${page.slug}.localhost:${process.env.GUEST_DEV_PORT ?? 5173}`;
   }
-  return `https://${master.slug}.${domain}`;
+  return `https://${page.slug}.${domain}`;
+}
+
+// Whether a page address is free: neither a master's nor a salon's.
+export async function isSlugTaken(slug, db = pool) {
+  const { rows } = await db.query(
+    'SELECT 1 FROM masters WHERE slug = $1 UNION ALL SELECT 1 FROM organizations WHERE slug = $1',
+    [slug]
+  );
+  return rows.length > 0;
 }
 
 // Whether a master's public booking page takes bookings right now. Also
@@ -119,6 +129,21 @@ export async function getMasterByHost(rawHost) {
   return rows[0] ?? null;
 }
 
+// The salon whose page a guest request was made on, from its host
+// ("<slug>.<platform domain>"), or null — a master's page, or nobody's.
+export async function getSalonByHost(rawHost) {
+  const host = String(rawHost ?? '').toLowerCase().split(':')[0].replace(/\.$/, '');
+  const domain = platformDomain();
+  if (!host.endsWith(`.${domain}`)) return null;
+  const slug = host.slice(0, -(domain.length + 1));
+  if (!SLUG_PATTERN.test(slug)) return null;
+  const { rows } = await pool.query(
+    `SELECT ${ORGANIZATION_COLUMNS} FROM organizations o WHERE o.slug = $1 AND o.kind = 'salon'`,
+    [slug]
+  );
+  return rows[0] ?? null;
+}
+
 export function newConnectToken(prefix = 'm') {
   // Telegram's start parameter allows A–Z a–z 0–9 _ - up to 64 characters; the
   // prefix tells a master's connect link ("m_") and a salon owner's ("o_")
@@ -126,7 +151,7 @@ export function newConnectToken(prefix = 'm') {
   return `${prefix}_${randomBytes(18).toString('base64url')}`;
 }
 
-export const ORGANIZATION_COLUMNS = `o.id, o.kind, o.name, o.timezone, o.currency, o.languages,
+export const ORGANIZATION_COLUMNS = `o.id, o.kind, o.name, o.slug, o.timezone, o.currency, o.languages,
   o.default_lang, o.notify_lang, o.telegram_chat_id, o.trial_ends_at, o.subscription_status,
   o.period_ends_at, o.customer_portal_url, o.suspended_at, o.master_share_percent, o.created_at`;
 
@@ -141,18 +166,29 @@ export async function getOrganizationById(id, db = pool) {
 // A new organization — the business a subscription pays for — with its free
 // trial. A solo master's has just them; a salon's has its masters. The locale
 // is the organization's: its masters share one price list, so one currency.
+// A salon also gets its own page (`slug`) with a landing page of its own,
+// headed with its name in every language it offers.
 export async function createOrganization(
   client,
-  { kind = 'solo', name = '', timezone, currency, languages, defaultLang, notifyLang = 'ru' }
+  { kind = 'solo', name = '', slug = null, timezone, currency, languages, defaultLang, notifyLang = 'ru' }
 ) {
   const { rows } = await client.query(
-    `INSERT INTO organizations (kind, name, timezone, currency, languages, default_lang,
+    `INSERT INTO organizations (kind, name, slug, timezone, currency, languages, default_lang,
                                 notify_lang, trial_ends_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, now() + make_interval(days => $8))
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now() + make_interval(days => $9))
      RETURNING id`,
-    [kind, name, timezone, currency, languages, defaultLang, notifyLang, TRIAL_DAYS]
+    [kind, name, slug, timezone, currency, languages, defaultLang, notifyLang, TRIAL_DAYS]
   );
-  return rows[0].id;
+  const id = rows[0].id;
+  if (kind === 'salon') {
+    const named = (lang) => (languages.includes(lang) ? name : '');
+    await client.query(
+      `INSERT INTO organization_profile (organization_id, owner_name_en, owner_name_ru, owner_name_hy)
+       VALUES ($1, $2, $3, $4)`,
+      [id, named('en'), named('ru'), named('hy')]
+    );
+  }
+  return id;
 }
 
 // A change to the organization's timezone, currency or languages, which every

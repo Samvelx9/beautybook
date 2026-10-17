@@ -3,7 +3,7 @@ import { pool } from '../db.js';
 import { localHour, localParts } from '../lib/time.js';
 import { buildIcs } from '../lib/ics.js';
 import { getBookingForGuest, localName } from './bookings.js';
-import { getProfileRow } from './profile.js';
+import { getProfileRow, masterProfile } from './profile.js';
 import { getMasterById, masterSiteUrl, platformDomain } from './masters.js';
 import {
   callTelegram,
@@ -278,7 +278,7 @@ export async function handleGuestMessage(message) {
     const T = TEXT[fallbackLang];
     const master = await lastMasterForChat(chatId);
     if (!master) return reply(chatId, T.notInbox);
-    const profile = await getProfileRow(master.id);
+    const profile = await getProfileRow(masterProfile(master.id));
     const contacts = [profile?.phone, profile?.telegram].filter(Boolean);
     return reply(
       chatId,
@@ -310,7 +310,7 @@ export async function handleGuestMessage(message) {
 
   const lang = langOf(booking);
   const T = TEXT[lang];
-  const profile = await getProfileRow(master.id);
+  const profile = await getProfileRow(masterProfile(master.id));
   await reply(
     chatId,
     `${T.linked}\n\n${visitDetails(booking, lang, master, profile)}\n\n${T.manage(manageUrlFor(master, booking))}`
@@ -416,7 +416,7 @@ export async function notifyGuest({ type, bookingId, previousStartTime }) {
 
     const lang = langOf(booking);
     const T = TEXT[lang];
-    const profile = await getProfileRow(master.id);
+    const profile = await getProfileRow(masterProfile(master.id));
 
     if (type === 'moved') {
       // "I'll be there" was said about the old time.
@@ -504,7 +504,7 @@ export async function sendReminders() {
       if (!booking?.guest_chat_id) continue;
       const master = await getMasterById(booking.master_id);
       if (!master) continue;
-      const profile = await getProfileRow(master.id);
+      const profile = await getProfileRow(masterProfile(master.id));
       const lang = langOf(booking);
       const T = TEXT[lang];
       const sent = await sendToGuest(
@@ -550,7 +550,7 @@ export function startGuestReminders() {
 export async function calendarFileFor(master, booking) {
   const lang = langOf(booking);
   const T = TEXT[lang];
-  const profile = await getProfileRow(master.id);
+  const profile = await getProfileRow(masterProfile(master.id));
   const zones = zoneNames(booking, lang);
   const brand = masterName(profile, lang) || T.visit;
   const description = [zones.join('\n'), profile?.phone, T.manage(manageUrlFor(master, booking))]

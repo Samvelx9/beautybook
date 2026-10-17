@@ -53,7 +53,7 @@ export async function getBookingWithItems(masterId, id) {
 // admin panel and the phone lookup read: `guest_token` is what proves a request
 // comes from the guest who booked, so it must not be handed to anyone who just
 // knows a phone number.
-const GUEST_FIELDS = `b.master_id, b.guest_token, b.guest_lang, b.guest_chat_id, b.guest_linked_at,
+const GUEST_FIELDS = `b.master_id, b.organization_id, b.guest_token, b.guest_lang, b.guest_chat_id, b.guest_linked_at,
        b.guest_confirmed_at, b.created_at`;
 
 // By the guest's secret token or by booking id, across the whole platform —

@@ -37,11 +37,30 @@ export function shapeProfile(row) {
   return profile;
 }
 
-export async function getProfileRow(masterId) {
+// Whose landing page: a master's (salon_profile, by master_id) or a salon's
+// (organization_profile, by organization_id) — the same fields either way.
+// `table` and `column` are only ever these two pairs, written in code.
+export const masterProfile = (masterId) => ({ table: 'salon_profile', column: 'master_id', id: masterId });
+export const salonProfile = (organizationId) => ({
+  table: 'organization_profile',
+  column: 'organization_id',
+  id: organizationId,
+});
+
+export async function getProfileRow(scope) {
   const { rows } = await pool.query(
     `SELECT ${PROFILE_TEXT_COLUMNS.join(', ')}, photo_updated_at
-     FROM salon_profile WHERE master_id = $1`,
-    [masterId]
+     FROM ${scope.table} WHERE ${scope.column} = $1`,
+    [scope.id]
   );
   return rows[0] || null;
+}
+
+// The photo itself, for the guest page to serve.
+export async function getProfilePhoto(scope) {
+  const { rows } = await pool.query(
+    `SELECT photo_mime, photo_data, photo_updated_at FROM ${scope.table} WHERE ${scope.column} = $1`,
+    [scope.id]
+  );
+  return rows[0]?.photo_data ? rows[0] : null;
 }
