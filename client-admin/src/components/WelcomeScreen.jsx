@@ -23,6 +23,10 @@ export default function WelcomeScreen({ T, lang, setLang, go }) {
   const priceLine = platform
     ? T.heroPrice(formatPlatformPrice(platform.priceMonthlyMinor, platform.priceCurrency, lang))
     : T.heroNoCard;
+  // Salons pay by plan; the smallest plan is what they start from.
+  const salonLine = platform?.salonPricesMinor
+    ? T.heroSalonPrice(formatPlatformPrice(platform.salonPricesMinor.salon_5, platform.priceCurrency, lang))
+    : null;
 
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
@@ -57,6 +61,7 @@ export default function WelcomeScreen({ T, lang, setLang, go }) {
               {T.heroCta}
             </a>
             <p style={{ margin: '12px 0 0', fontSize: 13, color: 'var(--muted)' }}>{priceLine}</p>
+            {salonLine && <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>{salonLine}</p>}
           </div>
 
           <PhonePreview T={T} />

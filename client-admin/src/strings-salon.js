@@ -104,6 +104,12 @@ export const SALON_STRINGS = {
     invalid_tax_rate: 'Enter a name and a rate above 0 and up to 100, with at most two decimals.',
     invalid_tax_payer: 'Choose who pays.',
 
+    salonPlanPriceLabel: (plan) => `Salon, ${plan}`,
+    salonPricesHint: 'What a salon pays a month, by how many masters work there. What it’s charged is each plan’s Lemon Squeezy product — change both together.',
+    salonPlanHint: 'The plan follows the number of working masters: up to 5, 6–10, 11 and more. It changes by itself when you add or deactivate a master, and the difference is prorated.',
+    perMonth: (price) => `${price} a month`,
+    heroSalonPrice: (price) => `Salons from ${price} a month, by number of masters.`,
+
     stepMasters: 'Add your masters',
     stepSalonTelegram: 'Connect the salon’s Telegram notifications',
   },
@@ -210,6 +216,12 @@ export const SALON_STRINGS = {
     invalid_tax_rate: 'Введите название и ставку больше 0 и не выше 100, не более двух знаков после запятой.',
     invalid_tax_payer: 'Выберите, кто платит.',
 
+    salonPlanPriceLabel: (plan) => `Салон, ${plan}`,
+    salonPricesHint: 'Сколько салон платит в месяц в зависимости от числа мастеров. Списывается цена соответствующего продукта в Lemon Squeezy — меняйте их вместе.',
+    salonPlanHint: 'Тариф зависит от числа работающих мастеров: до 5, 6–10, 11 и больше. Он меняется сам, когда вы добавляете или отключаете мастера, а разница пересчитывается пропорционально.',
+    perMonth: (price) => `${price} в месяц`,
+    heroSalonPrice: (price) => `Для салонов — от ${price} в месяц, в зависимости от числа мастеров.`,
+
     stepMasters: 'Добавьте мастеров',
     stepSalonTelegram: 'Подключите уведомления салона в Telegram',
   },
@@ -315,6 +327,12 @@ export const SALON_STRINGS = {
     missing_tax_name: 'Մուտքագրեք հարկի անվանումը։',
     invalid_tax_rate: 'Մուտքագրեք անվանումը և 0-ից մեծ, 100-ից ոչ ավելի դրույք՝ առավելագույնը երկու տասնորդական նիշով։',
     invalid_tax_payer: 'Ընտրեք, թե ով է վճարում։',
+
+    salonPlanPriceLabel: (plan) => `Սրահ, ${plan}`,
+    salonPricesHint: 'Որքան է սրահը վճարում ամսական՝ կախված վարպետների քանակից։ Գանձվում է համապատասխան Lemon Squeezy ապրանքի գինը․ փոխեք դրանք միասին։',
+    salonPlanHint: 'Սակագինը կախված է աշխատող վարպետների քանակից՝ մինչև 5, 6–10, 11 և ավելի։ Այն փոխվում է ինքնաբերաբար, երբ ավելացնում կամ անջատում եք վարպետին, իսկ տարբերությունը վերահաշվարկվում է համամասնորեն։',
+    perMonth: (price) => `${price} ամսական`,
+    heroSalonPrice: (price) => `Սրահների համար՝ ամսական ${price}-ից, կախված վարպետների քանակից։`,
 
     stepMasters: 'Ավելացրեք ձեր վարպետներին',
     stepSalonTelegram: 'Միացրեք սրահի Telegram ծանուցումները',

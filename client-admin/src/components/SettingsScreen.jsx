@@ -83,14 +83,19 @@ export default function SettingsScreen({ T, lang, account, salon, refreshAccount
   }[access.state];
   const subscribed = ['active', 'on_trial', 'past_due', 'cancelled'].includes(access.state);
 
-  // The platform's monthly price, as the operator set it.
+  // What the account's plan costs a month, as the operator set it: an
+  // individual master's price, or a salon's for its plan.
   const [platformPrice, setPlatformPrice] = useState(null);
+  const salonPlan = isSalonOwner ? salon?.plan : null;
   useEffect(() => {
     api
       .getPlatformInfo()
-      .then((info) => setPlatformPrice(formatPlatformPrice(info.priceMonthlyMinor, info.priceCurrency, lang)))
+      .then((info) => {
+        const minor = salonPlan ? info.salonPricesMinor[salonPlan] : info.priceMonthlyMinor;
+        setPlatformPrice(formatPlatformPrice(minor, info.priceCurrency, lang));
+      })
       .catch(() => setPlatformPrice(null));
-  }, [lang]);
+  }, [lang, salonPlan]);
 
   async function subscribe() {
     setBusy('billing');
@@ -236,10 +241,15 @@ export default function SettingsScreen({ T, lang, account, salon, refreshAccount
         <p style={{ ...muted, color: ['expired', 'past_due', 'suspended'].includes(access.state) ? 'var(--terracotta)' : 'var(--ink)' }}>
           {stateText}
         </p>
-        {isSalonOwner && salon && <p style={muted}>{T.salonPlan(salon.activeMasters, T.planNames[salon.plan])}</p>}
+        {isSalonOwner && salon && (
+          <p style={muted}>
+            {T.salonPlan(salon.activeMasters, T.planNames[salon.plan])}
+            {platformPrice && subscribed && access.state !== 'cancelled' ? ` · ${T.perMonth(platformPrice)}` : ''}
+          </p>
+        )}
+        {isSalonOwner && <p style={{ ...muted, fontSize: 12 }}>{T.salonPlanHint}</p>}
         {/* What subscribing costs, before the button that does it. */}
-        {/* The advertised price is the individual one; a salon's tiers are priced separately. */}
-        {platformPrice && !isSalon && (!subscribed || access.state === 'cancelled') && <p style={muted}>{T.billingPrice(platformPrice)}</p>}
+        {platformPrice && (!subscribed || access.state === 'cancelled') && <p style={muted}>{T.billingPrice(platformPrice)}</p>}
         {access.state !== 'suspended' && (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {!subscribed || access.state === 'cancelled' ? (

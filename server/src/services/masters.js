@@ -220,6 +220,16 @@ export async function offerByAllMasters(db, organizationId, serviceId) {
   );
 }
 
+// How many of an organization's masters are working — what a salon's plan
+// is decided by.
+export async function activeMasterCount(organizationId, db = pool) {
+  const { rows } = await db.query(
+    'SELECT COUNT(*)::int AS n FROM masters WHERE organization_id = $1 AND deactivated_at IS NULL',
+    [organizationId]
+  );
+  return rows[0].n;
+}
+
 // The monthly plan a salon is on, by how many masters it has working:
 // 1–5, 6–10, 11 and more. A solo master has the individual plan.
 export function planFor(organization, activeMasters) {

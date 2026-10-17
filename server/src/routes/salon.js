@@ -20,6 +20,7 @@ import {
 } from '../services/masters.js';
 import { getBotUsername, telegramToken } from '../services/telegram.js';
 import { EMAIL_PATTERN, readCurrency, readLanguages } from './auth.js';
+import { syncPlan } from '../services/billing.js';
 import { calendarRouter } from './calendar.js';
 import { profileRouter } from './profileRoutes.js';
 import { salonProfile } from '../services/profile.js';
@@ -260,6 +261,8 @@ salonRouter.post('/masters', asyncHandler(async (req, res) => {
     client.release();
   }
 
+  // One more master working may mean the next plan up.
+  await syncPlan(o.id);
   const body = await salonBody(o.id);
   res.status(201).json({
     master: body.masters.find((m) => m.id === masterId),
@@ -357,6 +360,8 @@ salonRouter.patch('/masters/:masterId', asyncHandler(async (req, res) => {
     client.release();
   }
 
+  // Masters starting or stopping work may move the salon to another plan.
+  if (active !== undefined) await syncPlan(req.organization.id);
   const body = await salonBody(req.organization.id);
   res.json(body.masters.find((m) => m.id === master.id));
 }));

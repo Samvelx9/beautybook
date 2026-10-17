@@ -12,6 +12,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import http from 'node:http';
 import pg from 'pg';
 
 const DB = process.env.TEST_DATABASE_URL;
@@ -28,7 +29,32 @@ const WEBHOOK_SECRET = 'test-webhook-secret';
 let server;
 let db;
 
+// A stand-in for Lemon Squeezy's API: it answers checkouts with a URL naming
+// the variant asked for, accepts subscription changes, and keeps every call
+// for the tests to look at.
+const lsCalls = [];
+const fakeLemonSqueezy = http.createServer((req, res) => {
+  let raw = '';
+  req.on('data', (chunk) => { raw += chunk; });
+  req.on('end', () => {
+    const body = raw ? JSON.parse(raw) : null;
+    lsCalls.push({ method: req.method, url: req.url, body });
+    res.setHeader('Content-Type', 'application/vnd.api+json');
+    if (req.method === 'POST' && req.url === '/v1/checkouts') {
+      const variant = body.data.relationships.variant.data.id;
+      res.end(JSON.stringify({ data: { attributes: { url: `https://checkout.test/${variant}` } } }));
+    } else if (req.method === 'PATCH' && req.url.startsWith('/v1/subscriptions/')) {
+      res.end(JSON.stringify({ data: body.data }));
+    } else {
+      res.statusCode = 404;
+      res.end('{}');
+    }
+  });
+});
+const VARIANTS = { individual: '100', salon_5: '105', salon_10: '110', salon_unlimited: '111' };
+
 before(async () => {
+  await new Promise((resolve) => fakeLemonSqueezy.listen(0, '127.0.0.1', resolve));
   db = new pg.Client({ connectionString: DB });
   await db.connect();
   await db.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
@@ -47,6 +73,13 @@ before(async () => {
       JWT_SECRET: 'test-jwt-secret',
       PLATFORM_DOMAIN: DOMAIN,
       LEMONSQUEEZY_WEBHOOK_SECRET: WEBHOOK_SECRET,
+      LEMONSQUEEZY_API_URL: `http://127.0.0.1:${fakeLemonSqueezy.address().port}/v1`,
+      LEMONSQUEEZY_API_KEY: 'test-key',
+      LEMONSQUEEZY_STORE_ID: '1',
+      LEMONSQUEEZY_VARIANT_ID: VARIANTS.individual,
+      LEMONSQUEEZY_VARIANT_SALON_5: VARIANTS.salon_5,
+      LEMONSQUEEZY_VARIANT_SALON_10: VARIANTS.salon_10,
+      LEMONSQUEEZY_VARIANT_SALON_UNLIMITED: VARIANTS.salon_unlimited,
     },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
@@ -59,6 +92,7 @@ before(async () => {
 });
 
 after(async () => {
+  fakeLemonSqueezy.close();
   server?.kill();
   await db?.end();
 });
@@ -469,7 +503,7 @@ test('platform screens are for the platform admin only', async () => {
 test('the platform price and support email: anyone can read them, only the operator can change them', async () => {
   const info = await call('GET', '/auth/platform');
   assert.equal(info.status, 200);
-  assert.deepEqual(info.body, { priceMonthlyMinor: 1000, priceCurrency: 'USD', supportEmail: null });
+  assert.deepEqual(info.body, { priceMonthlyMinor: 1000, priceCurrency: 'USD', supportEmail: null, salonPricesMinor: { salon_5: 3000, salon_10: 5000, salon_unlimited: 8000 } });
 
   assert.equal((await call('PATCH', '/platform/settings', { token: tokenB, body: { priceMonthlyMinor: 1 } })).status, 403);
   assert.equal((await call('PATCH', '/platform/settings', { body: { priceMonthlyMinor: 1 } })).status, 401);
@@ -483,11 +517,21 @@ test('the platform price and support email: anyone can read them, only the opera
     body: { priceMonthlyMinor: 1299, priceCurrency: 'eur', supportEmail: ' help@bb.test ' },
   });
   assert.equal(saved.status, 200);
-  assert.deepEqual(saved.body, { priceMonthlyMinor: 1299, priceCurrency: 'EUR', supportEmail: 'help@bb.test' });
+  assert.deepEqual(saved.body, { priceMonthlyMinor: 1299, priceCurrency: 'EUR', supportEmail: 'help@bb.test', salonPricesMinor: { salon_5: 3000, salon_10: 5000, salon_unlimited: 8000 } });
   assert.deepEqual((await call('GET', '/auth/platform')).body, saved.body);
+  // The salon plans' prices are the operator's to change too.
+  const salonPrice = await call('PATCH', '/platform/settings', {
+    token: tokenA, body: { salonPricesMinor: { salon_10: 5500 } },
+  });
+  assert.equal(salonPrice.body.salonPricesMinor.salon_10, 5500);
+  assert.equal(
+    (await call('PATCH', '/platform/settings', { token: tokenA, body: { salonPricesMinor: { salon_5: -1 } } })).body.error,
+    'invalid_price'
+  );
+  await call('PATCH', '/platform/settings', { token: tokenA, body: { salonPricesMinor: { salon_10: 5000 } } });
 
   const cleared = await call('PATCH', '/platform/settings', { token: tokenA, body: { priceMonthlyMinor: 1000, priceCurrency: 'USD', supportEmail: null } });
-  assert.deepEqual(cleared.body, { priceMonthlyMinor: 1000, priceCurrency: 'USD', supportEmail: null });
+  assert.deepEqual(cleared.body, { priceMonthlyMinor: 1000, priceCurrency: 'USD', supportEmail: null, salonPricesMinor: { salon_5: 3000, salon_10: 5000, salon_unlimited: 8000 } });
 });
 
 test("the operator sees one master in depth, without their clients' details", async () => {
@@ -1260,4 +1304,64 @@ test("a salon's own page: its masters, any-master slots and booking, salon-wide 
     (await call('POST', `/bookings/${first.body.id}/cancel`, { slug: 'iris-salon', body: { phone: '+37499000001' } })).status,
     404
   );
+});
+
+test("a salon's plan follows its working masters: checkout, upgrade, downgrade", async () => {
+  const owner = await signupSalon('Plum');
+  const prices = (await call('GET', '/auth/platform')).body.salonPricesMinor;
+  assert.deepEqual(prices, { salon_5: 3000, salon_10: 5000, salon_unlimited: 8000 });
+
+  // A salon subscribes on its plan's variant; an individual master on theirs.
+  const checkout = await call('POST', '/admin/billing/checkout', { token: owner });
+  assert.equal(checkout.body.url, `https://checkout.test/${VARIANTS.salon_5}`);
+  const soloCheckout = await call('POST', '/admin/billing/checkout', { token: tokenB });
+  assert.equal(soloCheckout.body.url, `https://checkout.test/${VARIANTS.individual}`);
+
+  const { rows } = await db.query(`SELECT id FROM organizations WHERE slug = 'plum-salon'`);
+  const subscription = (variant, eventName = 'subscription_created') => {
+    const { raw, signature } = signed({
+      meta: { event_name: eventName, custom_data: { organization_id: String(rows[0].id) } },
+      data: {
+        type: 'subscriptions',
+        id: '7001',
+        attributes: { status: 'active', variant_id: Number(variant), renews_at: new Date(Date.now() + 30 * 86400000).toISOString() },
+      },
+    });
+    return fetch(`${BASE}/billing/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Signature': signature },
+      body: raw,
+    });
+  };
+  assert.equal((await subscription(VARIANTS.salon_5)).status, 200);
+
+  const changes = () => lsCalls.filter((c) => c.method === 'PATCH' && c.url === '/v1/subscriptions/7001');
+  const masters = [];
+  for (let i = 1; i <= 6; i += 1) {
+    const added = await call('POST', '/salon/masters', {
+      token: owner,
+      body: { slug: `plum-${i}`, displayName: `Plum ${i}`, email: `plum-${i}@salon.example` },
+    });
+    masters.push(added.body.master.id);
+    // Up to five masters stays on the first plan.
+    if (i <= 5) assert.equal(changes().length, 0, `no change at ${i} masters`);
+  }
+  // The sixth moves the subscription up a plan.
+  assert.equal(changes().length, 1);
+  assert.equal(changes()[0].body.data.attributes.variant_id, Number(VARIANTS.salon_10));
+  assert.equal((await call('GET', '/salon', { token: owner })).body.plan, 'salon_10');
+
+  // One leaving moves it back down.
+  await call('PATCH', `/salon/masters/${masters[5]}`, { token: owner, body: { active: false } });
+  assert.equal(changes().length, 2);
+  assert.equal(changes()[1].body.data.attributes.variant_id, Number(VARIANTS.salon_5));
+
+  // A late webhook saying the old plan puts the salon on it — and the next
+  // sync corrects it straight back.
+  await subscription(VARIANTS.salon_10, 'subscription_updated');
+  assert.equal(changes().length, 3);
+  assert.equal(changes()[2].body.data.attributes.variant_id, Number(VARIANTS.salon_5));
+  // Once on the right plan, nothing more is sent.
+  await subscription(VARIANTS.salon_5, 'subscription_updated');
+  assert.equal(changes().length, 3);
 });

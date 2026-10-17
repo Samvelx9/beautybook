@@ -82,9 +82,16 @@ export default function OperatorSettingsScreen({ T, onAuthError, setSessionToken
   );
 }
 
-// The advertised monthly price (welcome page, masters' billing) and the support
-// email the privacy policy points to. The price is typed as an amount ("10" or
-// "9.99") and stored in cents.
+// The advertised monthly prices (welcome page, billing) — an individual
+// master's, and a salon's by plan — and the support email the privacy policy
+// points to. Prices are typed as amounts ("10" or "9.99") and stored in cents.
+const SALON_PLANS = ['salon_5', 'salon_10', 'salon_unlimited'];
+const toAmount = (minor) => String(minor / 100);
+const toMinor = (amount) => {
+  const n = Number(String(amount).replace(',', '.'));
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+};
+
 function PlatformSettings({ T, onAuthError }) {
   const [form, setForm] = useState(null); // { price: '10', currency: 'USD', supportEmail: '' }
   const [busy, setBusy] = useState(false);
@@ -95,7 +102,8 @@ function PlatformSettings({ T, onAuthError }) {
       .getPlatformSettings()
       .then((settings) =>
         setForm({
-          price: String(settings.priceMonthlyMinor / 100),
+          price: toAmount(settings.priceMonthlyMinor),
+          salonPrices: Object.fromEntries(SALON_PLANS.map((p) => [p, toAmount(settings.salonPricesMinor[p])])),
           currency: settings.priceCurrency,
           supportEmail: settings.supportEmail ?? '',
         })
@@ -108,8 +116,9 @@ function PlatformSettings({ T, onAuthError }) {
 
   async function save(e) {
     e.preventDefault();
-    const amount = Number(form.price.replace(',', '.'));
-    if (!Number.isFinite(amount) || amount < 0) {
+    const price = toMinor(form.price);
+    const salonPricesMinor = Object.fromEntries(SALON_PLANS.map((p) => [p, toMinor(form.salonPrices[p])]));
+    if (price === null || Object.values(salonPricesMinor).includes(null)) {
       setMessage({ key: 'invalid_price', error: true });
       return;
     }
@@ -117,7 +126,8 @@ function PlatformSettings({ T, onAuthError }) {
     setMessage(null);
     try {
       await api.updatePlatformSettings({
-        priceMonthlyMinor: Math.round(amount * 100),
+        priceMonthlyMinor: price,
+        salonPricesMinor,
         priceCurrency: form.currency,
         supportEmail: form.supportEmail.trim() || null,
       });
@@ -166,6 +176,20 @@ function PlatformSettings({ T, onAuthError }) {
               </select>
             </label>
           </div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {SALON_PLANS.map((plan) => (
+              <label key={plan} style={{ ...label, flex: '1 1 140px' }}>
+                {T.salonPlanPriceLabel(T.planNames[plan])}
+                <input
+                  className="field-input"
+                  inputMode="decimal"
+                  value={form.salonPrices[plan]}
+                  onChange={(e) => set({ salonPrices: { ...form.salonPrices, [plan]: e.target.value } })}
+                />
+              </label>
+            ))}
+          </div>
+          <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>{T.salonPricesHint}</p>
           <label style={label}>
             {T.supportEmailLabel}
             <input

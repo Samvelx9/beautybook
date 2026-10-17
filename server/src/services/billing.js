@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { pool } from '../db.js';
+import { activeMasterCount, getOrganizationById, planFor } from './masters.js';
 
 // Subscriptions through Lemon Squeezy (merchant of record: it handles cards,
 // VAT and receipts). Every organization gets a free trial at sign-up with no card;
@@ -10,33 +11,59 @@ import { pool } from '../db.js';
 // Configuration, all from the environment:
 //   LEMONSQUEEZY_API_KEY         API key (Settings → API)
 //   LEMONSQUEEZY_STORE_ID        the store's numeric id
-//   LEMONSQUEEZY_VARIANT_ID      the subscription product's variant
+//   LEMONSQUEEZY_VARIANT_ID      the individual master's plan's variant
+//   LEMONSQUEEZY_VARIANT_SALON_5, LEMONSQUEEZY_VARIANT_SALON_10,
+//   LEMONSQUEEZY_VARIANT_SALON_UNLIMITED
+//                                a salon's plans: up to 5 masters, 6–10, 11+
 //   LEMONSQUEEZY_WEBHOOK_SECRET  signing secret of the webhook pointed at
 //                                <PUBLIC_URL>/api/billing/webhook
+//   LEMONSQUEEZY_API_URL         only to point at something other than Lemon
+//                                Squeezy itself (the tests' stand-in)
 
-const API = 'https://api.lemonsqueezy.com/v1';
+const api = () => process.env.LEMONSQUEEZY_API_URL || 'https://api.lemonsqueezy.com/v1';
+
+// Live subscriptions: the ones a plan change is made on.
+const LIVE = ['active', 'on_trial', 'past_due'];
 
 export function billingConfig() {
   const apiKey = process.env.LEMONSQUEEZY_API_KEY;
   const storeId = process.env.LEMONSQUEEZY_STORE_ID;
-  const variantId = process.env.LEMONSQUEEZY_VARIANT_ID;
-  return apiKey && storeId && variantId ? { apiKey, storeId, variantId } : null;
+  const variants = {
+    individual: process.env.LEMONSQUEEZY_VARIANT_ID,
+    salon_5: process.env.LEMONSQUEEZY_VARIANT_SALON_5,
+    salon_10: process.env.LEMONSQUEEZY_VARIANT_SALON_10,
+    salon_unlimited: process.env.LEMONSQUEEZY_VARIANT_SALON_UNLIMITED,
+  };
+  return apiKey && storeId && variants.individual ? { apiKey, storeId, variants } : null;
 }
 
-// A checkout link for this organization. Its id rides along as custom data,
-// which Lemon Squeezy hands back in every webhook about the subscription —
-// that's how a payment finds who it's for.
+const headers = (config) => ({
+  Accept: 'application/vnd.api+json',
+  'Content-Type': 'application/vnd.api+json',
+  Authorization: `Bearer ${config.apiKey}`,
+});
+
+// The plan an organization should be on now, and its variant (undefined when
+// that plan's variant isn't configured).
+async function currentPlan(organization, config) {
+  const plan = planFor(organization, await activeMasterCount(organization.id));
+  return { plan, variantId: config?.variants[plan] };
+}
+
+// A checkout link for this organization, on the plan it needs now: an
+// individual master's, or a salon's by how many masters work there. Its id
+// rides along as custom data, which Lemon Squeezy hands back in every webhook
+// about the subscription — that's how a payment finds who it's for.
 export async function createCheckout({ organizationId, email, redirectUrl }) {
   const config = billingConfig();
   if (!config) return { error: 'billing_not_configured' };
+  const organization = await getOrganizationById(organizationId);
+  const { variantId } = await currentPlan(organization, config);
+  if (!variantId) return { error: 'billing_not_configured' };
 
-  const res = await fetch(`${API}/checkouts`, {
+  const res = await fetch(`${api()}/checkouts`, {
     method: 'POST',
-    headers: {
-      Accept: 'application/vnd.api+json',
-      'Content-Type': 'application/vnd.api+json',
-      Authorization: `Bearer ${config.apiKey}`,
-    },
+    headers: headers(config),
     body: JSON.stringify({
       data: {
         type: 'checkouts',
@@ -46,7 +73,7 @@ export async function createCheckout({ organizationId, email, redirectUrl }) {
         },
         relationships: {
           store: { data: { type: 'stores', id: String(config.storeId) } },
-          variant: { data: { type: 'variants', id: String(config.variantId) } },
+          variant: { data: { type: 'variants', id: String(variantId) } },
         },
       },
     }),
@@ -121,7 +148,8 @@ export async function applyWebhook(payload) {
        ls_subscription_id = $3,
        ls_customer_id = $4,
        period_ends_at = $5,
-       customer_portal_url = $6
+       customer_portal_url = $6,
+       ls_variant_id = COALESCE($7, ls_variant_id)
      WHERE id = $1
        -- An organization that subscribed twice: news about an old, dead subscription
        -- mustn't overwrite the live one.
@@ -135,6 +163,57 @@ export async function applyWebhook(payload) {
       // A cancelled subscription runs until ends_at; a live one renews at renews_at.
       a.ends_at ?? a.renews_at ?? null,
       a.urls?.customer_portal ?? null,
+      a.variant_id != null ? String(a.variant_id) : null,
     ]
   );
+
+  // A salon whose masters changed while a switch couldn't be made gets it now.
+  await syncPlan(organizationId);
+}
+
+// Moves a salon's live subscription to the plan its number of working masters
+// calls for — after a master is added, deactivated or reactivated, and on
+// every subscription webhook, so a switch that failed is made at the next
+// one. Lemon Squeezy prorates the difference. Best-effort: a failure is
+// logged, never thrown, and leaves the plan to the next try.
+// Returns { changed, variantId } or { changed: false, reason }.
+export async function syncPlan(organizationId) {
+  try {
+    const config = billingConfig();
+    if (!config) return { changed: false, reason: 'billing_not_configured' };
+    const organization = await getOrganizationById(organizationId);
+    if (!organization || organization.kind !== 'salon') return { changed: false, reason: 'not_a_salon' };
+    const { rows } = await pool.query(
+      'SELECT ls_subscription_id, ls_variant_id FROM organizations WHERE id = $1',
+      [organizationId]
+    );
+    const { ls_subscription_id: subscriptionId, ls_variant_id: onVariant } = rows[0];
+    if (!subscriptionId || !LIVE.includes(organization.subscription_status)) {
+      return { changed: false, reason: 'no_live_subscription' };
+    }
+    const { variantId } = await currentPlan(organization, config);
+    if (!variantId) return { changed: false, reason: 'billing_not_configured' };
+    if (String(variantId) === String(onVariant)) return { changed: false, reason: 'already_on_plan' };
+
+    const res = await fetch(`${api()}/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+      method: 'PATCH',
+      headers: headers(config),
+      body: JSON.stringify({
+        data: { type: 'subscriptions', id: String(subscriptionId), attributes: { variant_id: Number(variantId) } },
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      console.error('Lemon Squeezy plan change failed:', res.status, await res.text());
+      return { changed: false, reason: 'plan_change_failed' };
+    }
+    await pool.query('UPDATE organizations SET ls_variant_id = $2 WHERE id = $1', [
+      organizationId,
+      String(variantId),
+    ]);
+    return { changed: true, variantId: String(variantId) };
+  } catch (err) {
+    console.error('Lemon Squeezy plan change failed:', err.message);
+    return { changed: false, reason: 'plan_change_failed' };
+  }
 }

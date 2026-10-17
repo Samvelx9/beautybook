@@ -141,9 +141,15 @@ individual masters keep the current price.
   - [ ] A salon's own domain (today only masters can have one).
   - [ ] Guest Telegram messages and manage links point at the master's page even
         for a visit booked on the salon's page.
-- [ ] **Phase 5 — pricing.** Tier prices in `platform_settings`; a Lemon Squeezy
-      variant per tier; adding the 6th / 11th master (or dropping below) switches
-      the subscription's variant through the API.
+- [x] **Phase 5 — pricing.** Salon prices by plan in `platform_settings` (editable
+      on the operator's Settings; shown on the welcome page and the owner's
+      Settings). A Lemon Squeezy variant per plan (`LEMONSQUEEZY_VARIANT_SALON_5`,
+      `_10`, `_UNLIMITED`); a salon checks out on its plan, and its live
+      subscription is moved to another variant (prorated) when masters are added,
+      deactivated or reactivated, and on every subscription webhook, so a failed
+      switch is retried. Tested against a stand-in Lemon Squeezy.
+  - [ ] Create the three salon products/variants in Lemon Squeezy and set them.
+  - [ ] Run one real salon subscription through a plan change end to end.
 - [ ] **Phase 6 — operator.** Organizations list (type, tier, masters, billing
       state) and an organization's page with its masters.
 
