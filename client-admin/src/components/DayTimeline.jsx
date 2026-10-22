@@ -418,7 +418,7 @@ export default function DayTimeline({
                       flexDirection: 'column',
                       alignItems: 'flex-start',
                       gap: 1,
-                      padding: '3px 7px',
+                      padding: (s.end - s.start) * PX_PER_MIN < 34 ? '1px 7px' : '3px 7px',
                       overflow: 'hidden',
                       textAlign: 'left',
                       borderRadius: 7,
@@ -431,13 +431,23 @@ export default function DayTimeline({
                       color: 'var(--ink)',
                     }}
                   >
-                    <span style={{ fontSize: 11.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                      {toTime(s.start)}–{toTime(s.end)}
-                      {b.status === 'completed' && ' ✓'}
-                      {b.status === 'no_show' && ` · ${T.statusNoShow}`}
-                    </span>
-                    <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>{b.customer_name}</span>
-                    <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{zones}</span>
+                    {/* A short visit gets one line — its start and the client —
+                        rather than a time range cut off after the first. */}
+                    {(s.end - s.start) * PX_PER_MIN < 34 ? (
+                      <span style={{ fontSize: 11.5, whiteSpace: 'nowrap', lineHeight: 1.2 }}>
+                        <b style={{ fontVariantNumeric: 'tabular-nums' }}>{toTime(s.start)}</b> · {b.customer_name}
+                      </span>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: 11.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                          {toTime(s.start)}–{toTime(s.end)}
+                          {b.status === 'completed' && ' ✓'}
+                          {b.status === 'no_show' && ` · ${T.statusNoShow}`}
+                        </span>
+                        <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>{b.customer_name}</span>
+                        <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{zones}</span>
+                      </>
+                    )}
                   </button>
                 );
               })}
