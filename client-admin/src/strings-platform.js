@@ -5,6 +5,10 @@
 export const PLATFORM_STRINGS = {
   en: {
     viewDay: 'Day',
+    timelineDragHint: 'Drag a booking to move it to another time.',
+    timelineDragHintSalon: 'Drag a booking to another time, or to another master who does its services — the others fade while you drag.',
+    dropNotHere: 'Overlaps another booking',
+    dropNotTheirs: "Doesn't do these services",
     viewLabel: 'View',
     dayOwnColumn: 'Your bookings',
     dayNoMasters: 'Every master is hidden — pick at least one above.',
@@ -232,6 +236,10 @@ export const PLATFORM_STRINGS = {
 
   ru: {
     viewDay: 'День',
+    timelineDragHint: 'Перетащите запись, чтобы перенести её на другое время.',
+    timelineDragHintSalon: 'Перетащите запись на другое время или к другому мастеру, который выполняет её услуги, — остальные во время перетаскивания бледнеют.',
+    dropNotHere: 'Пересекается с другой записью',
+    dropNotTheirs: 'Не выполняет эти услуги',
     viewLabel: 'Вид',
     dayOwnColumn: 'Ваши записи',
     dayNoMasters: 'Все мастера скрыты — выберите хотя бы одного выше.',
@@ -459,6 +467,10 @@ export const PLATFORM_STRINGS = {
 
   hy: {
     viewDay: 'Օր',
+    timelineDragHint: 'Քաշեք գրանցումը՝ այն այլ ժամի տեղափոխելու համար։',
+    timelineDragHintSalon: 'Քաշեք գրանցումը այլ ժամի կամ այլ վարպետի մոտ, ով մատուցում է նրա ծառայությունները․ մնացածները քաշելիս գունատվում են։',
+    dropNotHere: 'Համընկնում է այլ գրանցման հետ',
+    dropNotTheirs: 'Չի մատուցում այս ծառայությունները',
     viewLabel: 'Տեսք',
     dayOwnColumn: 'Ձեր գրանցումները',
     dayNoMasters: 'Բոլոր վարպետները թաքցված են․ ընտրեք գոնե մեկին վերևում։',

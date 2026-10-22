@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { splitLocalDateTime, todayLocalStr } from 'salon-shared/time';
 import { localName } from '../i18n.js';
 import { MasterDot, masterColor, masterTint } from '../masterColors.jsx';
@@ -8,12 +9,20 @@ import { MasterDot, masterColor, masterTint } from '../masterColors.jsx';
 // gaps and who could take a walk-in show at a glance. Clicking a booking opens
 // it; clicking free time in a column starts a booking for that master then.
 //
+// A confirmed booking can be dragged to another time, or to another master's
+// column (`onMoveBooking`). While it's dragged, only the columns of masters
+// who can take it (`canTake`: they perform everything in it) stay live; the
+// rest are dimmed and refuse the drop, and so does a spot that would overlap
+// another booking. A press that barely moves is still a click.
+//
 // `columns`: [{ id, name, color, hours, blocks }] — `hours` the weekly_hours
 // row for this weekday (null while loading), `blocks` that day's
 // availability_blocks. `bookings` carry `master_id` when there are several.
 
 const PX_PER_MIN = 1.2;
 const SNAP_MIN = 15;
+const DRAG_THRESHOLD_PX = 5;
+const columnKey = (c) => c.id ?? 'own';
 const toMin = (t) => {
   const [h, m] = String(t).slice(0, 5).split(':').map(Number);
   return h * 60 + m;
@@ -41,8 +50,23 @@ function closedStretches(hours, blocks, from, to) {
 
 const HATCH = 'repeating-linear-gradient(135deg, var(--line) 0 2px, transparent 2px 8px)';
 
-export default function DayTimeline({ T, lang, date, columns, bookings, onPickBooking, onPickSlot }) {
+export default function DayTimeline({ T, lang, date, columns, bookings, onPickBooking, onPickSlot, onMoveBooking, canTake }) {
   const spans = new Map(bookings.map((b) => [b.id, span(b, date)]));
+  const columnEls = useRef(new Map());
+  const scroller = useRef(null);
+  // The drag under way: the booking, where it was grabbed, which columns may
+  // take it, and once it has really moved, where it would land.
+  // Kept in a ref as well, so pointer events arriving before the next render
+  // still see the latest state.
+  const [drag, setDragState] = useState(null);
+  const dragRef = useRef(null);
+  const setDrag = (next) => {
+    dragRef.current = next;
+    setDragState(next);
+  };
+  // A drag ends with a click on the block; that click mustn't open the form.
+  const justDragged = useRef(false);
+  const inColumn = (c) => (b) => columns.length === 1 || b.master_id === c.id;
 
   // The axis covers everyone's working hours and every booking, on whole
   // hours; an empty day off still shows a normal working day's frame.
@@ -67,8 +91,87 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
     onPickSlot(column.id, toTime(Math.min(Math.max(minute, from), to - SNAP_MIN)));
   }
 
+  function startDrag(event, booking, column) {
+    if (!onMoveBooking || booking.status !== 'confirmed' || event.button > 0) return;
+    const rect = columnEls.current.get(columnKey(column)).getBoundingClientRect();
+    const s = spans.get(booking.id);
+    // Keeps the moves coming to this block wherever the pointer goes. Can fail
+    // for a pointer the browser no longer tracks; the drag works without it
+    // while the pointer stays over the block's column.
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      /* not capturable */
+    }
+    setDrag({
+      booking,
+      length: s.end - s.start,
+      grabMin: (event.clientY - rect.top) / PX_PER_MIN + from - s.start,
+      x: event.clientX,
+      y: event.clientY,
+      live: new Set(columns.filter((c) => canTake(booking, c.id)).map(columnKey)),
+      moved: false,
+      target: null,
+    });
+  }
+
+  function moveDrag(event) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < DRAG_THRESHOLD_PX) return;
+    // Near either edge of a timeline wider than the screen, it scrolls, so a
+    // master whose column is out of view can still be reached.
+    const box = scroller.current?.getBoundingClientRect();
+    if (box) {
+      if (event.clientX > box.right - 40) scroller.current.scrollLeft += 24;
+      else if (event.clientX < box.left + 84) scroller.current.scrollLeft -= 24;
+    }
+    // The column under the pointer, or the nearest one past either edge.
+    let column = null;
+    let best = Infinity;
+    for (const c of columns) {
+      const rect = columnEls.current.get(columnKey(c))?.getBoundingClientRect();
+      if (!rect) continue;
+      const distance = event.clientX < rect.left ? rect.left - event.clientX : event.clientX > rect.right ? event.clientX - rect.right : 0;
+      if (distance < best) {
+        best = distance;
+        column = { c, rect };
+      }
+    }
+    if (!column) return;
+    const raw = (event.clientY - column.rect.top) / PX_PER_MIN + from - drag.grabMin;
+    const start = Math.min(Math.max(Math.round(raw / SNAP_MIN) * SNAP_MIN, from), to - Math.min(drag.length, to - from));
+    const end = start + drag.length;
+    const key = columnKey(column.c);
+    const clash = bookings.some((b) => {
+      if (b.id === drag.booking.id || !inColumn(column.c)(b)) return false;
+      const o = spans.get(b.id);
+      return o.start < end && start < o.end;
+    });
+    // Why a spot refuses the drop, said on the ghost: not this master's work,
+    // or the time is taken.
+    const refusal = !drag.live.has(key) ? 'dropNotTheirs' : clash ? 'dropNotHere' : null;
+    setDrag({ ...drag, moved: true, target: { column: column.c, key, start, ok: !refusal, refusal } });
+  }
+
+  function endDrag() {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const { booking, moved, target } = drag;
+    setDrag(null);
+    if (!moved) return;
+    justDragged.current = true;
+    const from_ = spans.get(booking.id).start;
+    const sameColumn = columns.length === 1 || target?.column.id === booking.master_id;
+    if (target?.ok && (target.start !== from_ || !sameColumn)) {
+      onMoveBooking(booking, { masterId: target.column.id, time: toTime(target.start) });
+    }
+  }
+
+  const dragging = drag?.moved ? drag : null;
+
   return (
-    <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
+    <div ref={scroller} className="card" style={{ padding: 0, overflowX: 'auto' }}>
       <div
         style={{
           display: 'grid',
@@ -79,11 +182,12 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
         {/* Header: who each column is, and how many visits they have. */}
         <span style={{ borderBottom: '1px solid var(--line)' }} />
         {columns.map((c) => {
-          const count = bookings.filter((b) => columns.length === 1 || b.master_id === c.id).length;
+          const count = bookings.filter(inColumn(c)).length;
           return (
             <div
               key={c.id ?? 'own'}
               style={{
+                opacity: dragging && !dragging.live.has(columnKey(c)) ? 0.35 : 1,
                 display: 'flex',
                 alignItems: 'center',
                 gap: 7,
@@ -123,17 +227,24 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
         </div>
 
         {columns.map((c) => {
-          const own = bookings.filter((b) => columns.length === 1 || b.master_id === c.id);
+          const own = bookings.filter(inColumn(c));
+          const key = columnKey(c);
+          const live = !dragging || dragging.live.has(key);
+          const target = dragging?.target?.key === key ? dragging.target : null;
           return (
             <div
-              key={c.id ?? 'own'}
-              onClick={(e) => pickSlot(e, c)}
-              title={onPickSlot ? T.timelineAddHint : undefined}
+              key={key}
+              ref={(el) => (el ? columnEls.current.set(key, el) : columnEls.current.delete(key))}
+              onClick={(e) => !dragging && pickSlot(e, c)}
+              title={onPickSlot && !dragging ? T.timelineAddHint : undefined}
               style={{
                 position: 'relative',
                 height,
                 borderLeft: '1px solid var(--line)',
-                cursor: onPickSlot ? 'copy' : 'default',
+                cursor: dragging ? (live ? 'grabbing' : 'not-allowed') : onPickSlot ? 'copy' : 'default',
+                // The columns that can take the dragged booking are outlined in
+                // their master's colour; the rest fade back.
+                boxShadow: dragging && live ? `inset 0 0 0 2px ${masterColor(c.color)}` : 'none',
                 backgroundImage: `repeating-linear-gradient(to bottom, var(--line) 0 1px, transparent 1px ${60 * PX_PER_MIN}px)`,
               }}
             >
@@ -160,13 +271,24 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
                 return (
                   <button
                     key={b.id}
+                    onPointerDown={(e) => startDrag(e, b, c)}
+                    onPointerMove={moveDrag}
+                    onPointerUp={endDrag}
+                    onPointerCancel={() => setDrag(null)}
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (justDragged.current) {
+                        justDragged.current = false;
+                        return;
+                      }
                       onPickBooking(b);
                     }}
                     title={label}
                     aria-label={label}
                     style={{
+                      // Touch: the press drags the block rather than the page.
+                      touchAction: onMoveBooking && b.status === 'confirmed' ? 'none' : 'auto',
+                      zIndex: 1,
                       position: 'absolute',
                       left: 4,
                       right: 4,
@@ -183,8 +305,9 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
                       background: masterTint(c.color),
                       borderLeft: `4px solid ${masterColor(c.color)}`,
                       // A no-show keeps its place, faded; it still held the time.
-                      opacity: b.status === 'no_show' ? 0.55 : 1,
-                      cursor: 'pointer',
+                      // The one being dragged stays faint where it was.
+                      opacity: dragging?.booking.id === b.id ? 0.3 : b.status === 'no_show' ? 0.55 : 1,
+                      cursor: onMoveBooking && b.status === 'confirmed' ? 'grab' : 'pointer',
                       color: 'var(--ink)',
                     }}
                   >
@@ -198,6 +321,44 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
                   </button>
                 );
               })}
+              {!live && (
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    zIndex: 2,
+                    background: 'var(--bg)',
+                    opacity: 0.7,
+                    backgroundImage: HATCH,
+                  }}
+                />
+              )}
+              {target && (
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: 'absolute',
+                    left: 4,
+                    right: 4,
+                    zIndex: 3,
+                    top: (target.start - from) * PX_PER_MIN + 1,
+                    // Room for the reason too, on a short booking.
+                    height: Math.max(dragging.length * PX_PER_MIN - 2, target.ok ? 20 : 46),
+                    borderRadius: 7,
+                    border: `2px dashed ${target.ok ? masterColor(c.color) : 'var(--terracotta)'}`,
+                    background: target.ok ? masterTint(c.color) : 'var(--terracotta-light)',
+                    padding: '3px 7px',
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    fontVariantNumeric: 'tabular-nums',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  {toTime(target.start)}–{toTime(target.start + dragging.length)}
+                  {!target.ok && <span style={{ display: 'block', fontWeight: 600, color: 'var(--terracotta)' }}>{T[target.refusal]}</span>}
+                </div>
+              )}
               {nowMin !== null && nowMin >= from && nowMin <= to && (
                 <div
                   aria-hidden="true"

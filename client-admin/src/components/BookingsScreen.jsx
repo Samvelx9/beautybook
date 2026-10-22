@@ -95,6 +95,9 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
   const [statusFilter, setStatusFilter] = useState(() => routeParam('status', (v) => v in STATUS_KEY, ''));
   const [bookings, setBookings] = useState([]);
   const [services, setServices] = useState([]);
+  // Hidden ones too: a booking may hold a zone that's since come off sale, and
+  // the day view still has to know who performs it.
+  const [allServices, setAllServices] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -162,6 +165,7 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
       try {
         const [serviceRows, categoryRows] = await Promise.all([api.getServices(), api.getCategories()]);
         setServices(serviceRows.filter((s) => s.is_active));
+        setAllServices(serviceRows);
         setCategories(categoryRows);
       } catch (err) {
         onAuthError(err);
@@ -218,6 +222,33 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
       .map((m) => ({ id: m.id, name: m.name || m.slug, color: m.color, count: day.filter((b) => b.master_id === m.id).length }))
       .filter((d) => d.count > 0);
   };
+
+  // Whether a master's column may take a dragged booking: its own master's
+  // always may; another must perform everything in it (the server checks the
+  // same, and refuses with not_performed).
+  const canTake = (booking, masterId) =>
+    masterId === null ||
+    booking.master_id === undefined ||
+    booking.master_id === masterId ||
+    (booking.items ?? []).every((item) =>
+      allServices.find((s) => s.id === item.service_id)?.master_ids?.includes(masterId)
+    );
+
+  // A booking dropped in the day view: a new time that day, and maybe another
+  // master. The database still refuses an overlap the screen didn't foresee.
+  async function moveBooking(booking, { masterId, time }) {
+    setError(null);
+    const payload = { date: selectedDate, time };
+    if (masterId !== null && booking.master_id !== undefined && masterId !== booking.master_id) payload.masterId = masterId;
+    try {
+      await api.updateBooking(booking.id, payload, booking.master_id ?? undefined);
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'slot_taken') setError('slotTakenError');
+      else if (err instanceof ApiError && err.code === 'not_performed') setError('notPerformedError');
+      else if (!onAuthError(err)) setError('genericError');
+    }
+    await load();
+  }
 
   async function changeStatus(booking, status) {
     try {
@@ -542,7 +573,11 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
                 onPickMonth={(m) => goToMonth(year, m)}
               />
             ) : view === 'day' ? (
-              dayColumns.length === 0 ? (
+              <>
+              <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)' }}>
+                {dayColumns.length > 1 ? T.timelineDragHintSalon : T.timelineDragHint}
+              </p>
+              {dayColumns.length === 0 ? (
                 <p style={{ margin: 0, fontSize: 13.5, color: 'var(--muted)' }}>{T.dayNoMasters}</p>
               ) : (
                 <DayTimeline
@@ -557,8 +592,11 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
                       ? (masterId, time) => openAddBooking({ masterId: masterId ?? undefined, time })
                       : null
                   }
+                  onMoveBooking={editingBookingId === null ? moveBooking : null}
+                  canTake={canTake}
                 />
-              )
+              )}
+              </>
             ) : (
               <MonthGrid
                 T={T}
