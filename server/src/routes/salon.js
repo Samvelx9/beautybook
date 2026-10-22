@@ -18,6 +18,8 @@ import {
   setOrganizationLocale,
   slugProblem,
   changeMasterSlug,
+  MASTER_COLORS,
+  MASTER_COLOR_SQL,
 } from '../services/masters.js';
 import { getBotUsername, telegramToken } from '../services/telegram.js';
 import { EMAIL_PATTERN, readCurrency, readLanguages } from './auth.js';
@@ -61,6 +63,7 @@ async function salonBody(organizationId) {
   const organization = await getOrganizationById(organizationId);
   const { rows: masters } = await pool.query(
     `SELECT m.id, m.slug, m.custom_domain, m.custom_domain_status, m.deactivated_at, m.telegram_chat_id, m.created_at,
+            ${MASTER_COLOR_SQL('m')} AS color, m.color AS chosen_color,
             m.share_percent, current_master_share(m.id) AS effective_share,
             m.tax_payer, current_tax_payer(m.id) AS effective_tax_payer,
             p.owner_name_en, p.owner_name_ru, p.owner_name_hy,
@@ -107,6 +110,10 @@ async function salonBody(organizationId) {
       email: m.email,
       isOwner: m.role === 'owner',
       active: !m.deactivated_at,
+      // Their colour on the Bookings screen, and whether the owner picked it
+      // (false: automatic, by their place among the salon's masters).
+      color: m.color,
+      colorChosen: m.chosen_color !== null,
       telegramConnected: Boolean(m.telegram_chat_id),
       serviceIds: m.service_ids,
       // Their own share when it differs from the salon's (null: the salon's),
@@ -290,6 +297,8 @@ async function salonMaster(req, res) {
 // { sharePercent: n | null } — their own share of their visits' income, or
 // null to follow the salon's.
 // { slug } — their page's new address; the old one stops working.
+// { color } — their colour on the Bookings screen (MASTER_COLORS), or null for
+// the automatic one.
 // { taxPayer: 'master' | 'salon' | 'both' } — who pays the taxes on their
 // visits, from visits completed now on.
 // Neither for the owner's own calendar: the owner's visits are all theirs.
@@ -302,8 +311,13 @@ salonRouter.patch('/masters/:masterId', asyncHandler(async (req, res) => {
   const rawShare = req.body?.sharePercent;
   const taxPayer = req.body?.taxPayer;
   const slug = req.body?.slug;
-  if (active === undefined && rawServiceIds === undefined && rawShare === undefined && taxPayer === undefined && slug === undefined) {
+  const color = req.body?.color;
+  if (active === undefined && rawServiceIds === undefined && rawShare === undefined && taxPayer === undefined &&
+      slug === undefined && color === undefined) {
     return res.status(400).json({ error: 'no_fields_to_update' });
+  }
+  if (color !== undefined && color !== null && !MASTER_COLORS.includes(color)) {
+    return res.status(400).json({ error: 'invalid_color' });
   }
   if (taxPayer !== undefined) {
     if (master.id === req.user.master_id) return res.status(400).json({ error: 'owner_keeps_all' });
@@ -347,6 +361,10 @@ salonRouter.patch('/masters/:masterId', asyncHandler(async (req, res) => {
     }
     if (taxPayer !== undefined) {
       await client.query('UPDATE masters SET tax_payer = $2 WHERE id = $1', [master.id, taxPayer]);
+    }
+    // null puts them back on the automatic colour.
+    if (color !== undefined) {
+      await client.query('UPDATE masters SET color = $2 WHERE id = $1', [master.id, color]);
     }
     if (serviceIds) {
       await client.query('DELETE FROM master_services WHERE master_id = $1', [master.id]);

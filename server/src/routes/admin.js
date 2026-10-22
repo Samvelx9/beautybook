@@ -112,6 +112,7 @@ async function accountBody(req) {
     master: master && {
       id: master.id,
       slug: master.slug,
+      color: master.color,
       siteUrl: masterSiteUrl(master),
       customDomain: master.custom_domain,
       timezone: master.timezone,

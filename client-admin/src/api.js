@@ -125,12 +125,14 @@ export const api = {
   updateService: (id, payload) => request(`/admin/services/${id}`, json('PATCH', payload)),
   deleteService: (id) => request(`/admin/services/${id}`, { method: 'DELETE' }),
 
-  getWeeklyHours: () => request(cal('/availability/weekly')),
+  // `masterId` reads another of the salon's calendars than the one picked (the
+  // day view lays every master's side by side).
+  getWeeklyHours: (masterId) => request(cal('/availability/weekly', masterId)),
   // The whole week saved at once, transactionally — see the Availability screen.
   updateWeeklyHoursAll: (days) => request(cal('/availability/weekly'), json('PUT', { days })),
   updateWeeklyHours: (dayOfWeek, payload) =>
     request(cal(`/availability/weekly/${dayOfWeek}`), json('PUT', payload)),
-  getBlocks: (from, to) => request(cal(`/availability/blocks${query({ from, to })}`)),
+  getBlocks: (from, to, masterId) => request(cal(`/availability/blocks${query({ from, to })}`, masterId)),
   createBlock: (payload) => request(cal('/availability/blocks'), json('POST', payload)),
   deleteBlock: (id) => request(cal(`/availability/blocks/${id}`), { method: 'DELETE' }),
   // Minimum notice and booking window: the calendar's own.

@@ -11,6 +11,26 @@
   --terracotta-light: oklch(93% 0.035 50);
   --line: oklch(89% 0.012 85);
   --white: oklch(99% 0 0);
+
+  /* Masters' colours on the salon's Bookings screen (masterColors.js): a
+     strong shade for dots and stripes, a light tint for blocks. Hues are
+     spaced around the wheel so neighbours don't blur together. */
+  --mc-rose: oklch(58% 0.16 15);
+  --mc-rose-light: oklch(93% 0.035 15);
+  --mc-orange: oklch(64% 0.15 55);
+  --mc-orange-light: oklch(93% 0.04 60);
+  --mc-mustard: oklch(70% 0.13 95);
+  --mc-mustard-light: oklch(94% 0.05 95);
+  --mc-green: oklch(56% 0.13 145);
+  --mc-green-light: oklch(93% 0.04 145);
+  --mc-teal: oklch(56% 0.09 195);
+  --mc-teal-light: oklch(93% 0.03 195);
+  --mc-blue: oklch(55% 0.14 250);
+  --mc-blue-light: oklch(93% 0.03 250);
+  --mc-violet: oklch(52% 0.15 295);
+  --mc-violet-light: oklch(93% 0.035 295);
+  --mc-magenta: oklch(56% 0.18 340);
+  --mc-magenta-light: oklch(93% 0.04 340);
 }
 
 * {

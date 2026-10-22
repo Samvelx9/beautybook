@@ -6,7 +6,18 @@ import { pool } from '../db.js';
 // Billing belongs to the master's organization (a salon pays once for all its
 // masters) and comes along under its own column names, so a master row is
 // still all hasAccess() needs. Select them FROM MASTER_FROM.
+// The palette a master's colour comes from (masters.color; the admin app
+// draws each one). Automatic, a master takes the colour at their place among
+// the organization's masters, oldest first.
+export const MASTER_COLORS = ['rose', 'orange', 'mustard', 'green', 'teal', 'blue', 'violet', 'magenta'];
+export const MASTER_COLOR_SQL = (alias) => `COALESCE(${alias}.color,
+  (ARRAY[${MASTER_COLORS.map((c) => `'${c}'`).join(', ')}])[
+    (SELECT COUNT(*) FROM masters earlier
+      WHERE earlier.organization_id = ${alias}.organization_id
+        AND (earlier.created_at, earlier.id) < (${alias}.created_at, ${alias}.id)) % ${MASTER_COLORS.length} + 1])`;
+
 export const MASTER_COLUMNS = `m.id, m.organization_id, o.kind AS organization_kind, m.slug,
+  ${MASTER_COLOR_SQL('m')} AS color, m.color AS chosen_color,
   m.custom_domain, m.custom_domain_status, m.timezone, m.currency, m.languages, m.default_lang, m.notify_lang,
   m.telegram_chat_id, o.trial_ends_at, o.subscription_status, o.period_ends_at,
   o.customer_portal_url, o.suspended_at, m.min_notice_minutes, m.booking_window_days,

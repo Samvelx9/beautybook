@@ -1,5 +1,6 @@
 import LangSwitcher from './LangSwitcher.jsx';
 import { PRODUCT_NAME } from '../i18n.js';
+import { MasterDot } from '../masterColors.jsx';
 
 const TAB_LABEL_KEY = {
   dashboard: 'navDashboard',
@@ -78,6 +79,11 @@ export default function AdminLayout({ T, lang, setLang, tabs, tab, setTab, onLog
               {salonName || PRODUCT_NAME}
             </h2>
             {siteUrl && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+              {/* A salon's master: their colour, as the owner's Bookings screen shows them. */}
+              {salonName && account.role === 'master' && account.master?.color && (
+                <MasterDot color={account.master.color} title={T.yourColor} />
+              )}
               <a
                 href={siteUrl}
                 target="_blank"
@@ -86,6 +92,7 @@ export default function AdminLayout({ T, lang, setLang, tabs, tab, setTab, onLog
               >
                 {siteUrl.replace(/^https?:\/\//, '')} ↗
               </a>
+              </span>
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>

@@ -5,6 +5,8 @@ import { splitLocalDateTime, todayLocalStr } from 'salon-shared/time';
 import { DURATION_CHOICES, MIN_BOOKING_MINUTES, formatDuration } from 'salon-shared/booking';
 import { isDateStr, isMonthStr, routeParam, setRouteParams } from '../route.js';
 import ConfirmInline from './ConfirmInline.jsx';
+import DayTimeline from './DayTimeline.jsx';
+import { MasterDot, masterColor } from '../masterColors.jsx';
 
 // Today in the master's own timezone, not the browser's.
 const todayStr = todayLocalStr;
@@ -64,15 +66,27 @@ const EMPTY_BOOKING_FORM = {
 // For a salon's owner the screen shows one master's calendar — the one picked
 // above it (`calendarMaster`) — or every master's at once (`allMasters`), each
 // booking then carrying its `master_id`. Everyone else sees their own.
-export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMaster, allMasters }) {
+export default function BookingsScreen({ T, lang, onAuthError, account, salon, calendarMaster, allMasters }) {
   const masters = (salon?.masters ?? []).filter((m) => m.active);
   const masterName = (id) => {
     const m = masters.find((x) => x.id === id);
     return m ? m.name || m.slug : '';
   };
+  // Every master's colour (the server picks one when the owner hasn't).
+  const colorOf = (id) => (salon?.masters ?? []).find((x) => x.id === id)?.color;
+  // With every master on screen, the legend's chips hide and show each one's
+  // bookings, everywhere on the screen at once.
+  const [hiddenMasters, setHiddenMasters] = useState(() => new Set());
+  const toggleMaster = (id) =>
+    setHiddenMasters((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   // The calendar position starts from the URL, so a reload reopens the same
   // month, day and filter — see route.js.
-  const [view, setView] = useState(() => routeParam('view', (v) => v === 'year', 'month')); // 'month' | 'year'
+  const [view, setView] = useState(() => routeParam('view', (v) => v === 'year' || v === 'day', 'month')); // 'day' | 'month' | 'year'
   const [cursor, setCursor] = useState(() => routeParam('month', isMonthStr, todayStr().slice(0, 7)) + '-01');
   const [selectedDate, setSelectedDate] = useState(() =>
     routeParam('day', (d) => isDateStr(d) && d.slice(0, 7) === cursor.slice(0, 7), todayStr())
@@ -105,7 +119,9 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
     ? { from: addDays(todayStr(), -365), to: addDays(todayStr(), 365) }
     : view === 'year'
       ? { from: monthStart(year, 1), to: `${year}-12-31` }
-      : { from: monthStart(year, month), to: `${year}-${pad(month)}-${daysInMonth(year, month)}` };
+      : view === 'day'
+        ? { from: selectedDate, to: selectedDate }
+        : { from: monthStart(year, month), to: `${year}-${pad(month)}-${daysInMonth(year, month)}` };
 
   async function load() {
     setLoading(true);
@@ -132,7 +148,7 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
   useEffect(() => {
     const today = todayStr();
     setRouteParams({
-      view: view === 'year' ? 'year' : null,
+      view: view === 'month' ? null : view,
       month: cursor.slice(0, 7) === today.slice(0, 7) ? null : cursor.slice(0, 7),
       day: selectedDate === today ? null : selectedDate,
       status: statusFilter,
@@ -154,6 +170,55 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The day view's columns: every master shown (with all of them on screen),
+  // the one picked, or the login's own calendar. Each carries that weekday's
+  // hours and the day's blocks, so time off is drawn hatched.
+  const dayColumns = allMasters
+    ? masters.filter((m) => !hiddenMasters.has(m.id)).map((m) => ({ id: m.id, name: m.name || m.slug, color: m.color }))
+    : [{
+        id: calendarMaster?.id ?? null,
+        name: calendarMaster ? calendarMaster.name || calendarMaster.slug : T.dayOwnColumn,
+        color: calendarMaster?.color ?? account?.master?.color,
+      }];
+  const dayColumnKey = dayColumns.map((c) => c.id ?? 'own').join(',');
+  const [dayAvailability, setDayAvailability] = useState(() => new Map());
+  useEffect(() => {
+    if (view !== 'day') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const entries = await Promise.all(
+          dayColumns.map(async (c) => {
+            const id = c.id ?? undefined;
+            const [hours, blocks] = await Promise.all([
+              api.getWeeklyHours(id),
+              api.getBlocks(selectedDate, selectedDate, id),
+            ]);
+            const weekday = parseDay(selectedDate).getDay();
+            return [c.id ?? 'own', { hours: hours.find((h) => h.day_of_week === weekday) ?? null, blocks }];
+          })
+        );
+        if (!cancelled) setDayAvailability(new Map(entries));
+      } catch (err) {
+        if (!cancelled) onAuthError(err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, selectedDate, dayColumnKey]);
+
+  // The colour dots under a day in the month: one per master with bookings
+  // that day, in the salon's order, with how many each has.
+  const dotsFor = (dateStr) => {
+    if (!allMasters) return null;
+    const day = byDate.get(dateStr) || [];
+    return masters
+      .map((m) => ({ id: m.id, name: m.name || m.slug, color: m.color, count: day.filter((b) => b.master_id === m.id).length }))
+      .filter((d) => d.count > 0);
+  };
+
   async function changeStatus(booking, status) {
     try {
       await api.updateBookingStatus(booking.id, status, booking.master_id);
@@ -163,8 +228,10 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
     }
   }
 
+  // What's on screen: everything, less the masters hidden in the legend.
+  const shown = allMasters ? bookings.filter((b) => !hiddenMasters.has(b.master_id)) : bookings;
   const byDate = new Map();
-  for (const b of bookings) {
+  for (const b of shown) {
     const key = dateKeyOf(b);
     if (!byDate.has(key)) byDate.set(key, []);
     byDate.get(key).push(b);
@@ -175,9 +242,9 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
   // the clean-up list, the open month in year view, or the open day.
   const monthPrefix = `${year}-${pad(selectedMonth)}-`;
   const listed = cleanupView
-    ? sortByTime(bookings)
+    ? sortByTime(shown)
     : view === 'year'
-      ? sortByTime(bookings.filter((b) => dateKeyOf(b).startsWith(monthPrefix)))
+      ? sortByTime(shown.filter((b) => dateKeyOf(b).startsWith(monthPrefix)))
       : sortByTime(byDate.get(selectedDate) || []);
   const cancelledListed = listed.filter((b) => b.status === 'cancelled');
   const allCancelledSelected = cancelledListed.length > 0 && cancelledListed.every((b) => selected.has(b.id));
@@ -220,12 +287,14 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
     }
   }
 
-  function openAddBooking() {
+  // `prefill` comes from free time clicked in the day view: that master, then.
+  function openAddBooking(prefill = {}) {
     setBookingForm({
       ...EMPTY_BOOKING_FORM,
       items: [],
       date: cleanupView ? todayStr() : selectedDate || todayStr(),
-      masterId: String(calendarMaster?.id ?? masters[0]?.id ?? ''),
+      masterId: String(prefill.masterId ?? calendarMaster?.id ?? masters[0]?.id ?? ''),
+      ...(prefill.time ? { time: prefill.time } : {}),
     });
     setError(null);
     setEditingBookingId('new');
@@ -250,6 +319,11 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
     setEditingMasterId(booking.master_id ?? calendarMaster?.id ?? null);
     setError(null);
     setEditingBookingId(booking.id);
+    // Opened from the day view, the form is down in the list: bring it up.
+    requestAnimationFrame(() => {
+      const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      document.getElementById(`booking-${booking.id}`)?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
+    });
   }
 
   async function saveBooking() {
@@ -319,6 +393,13 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
   }
 
   function stepCursor(delta) {
+    if (view === 'day') {
+      const next = addDays(selectedDate, delta);
+      setCursor(next.slice(0, 7) + '-01');
+      setSelectedMonth(Number(next.slice(5, 7)));
+      setSelectedDate(next);
+      return;
+    }
     if (view === 'year') {
       // A new year opens on today's month when today is in it, else January.
       const y = year + delta;
@@ -332,7 +413,12 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
     else goToMonth(year, next);
   }
 
-  const periodLabel = view === 'year' ? String(year) : `${MONTH_FULL[lang][month - 1]} ${year}`;
+  const periodLabel =
+    view === 'year'
+      ? String(year)
+      : view === 'day'
+        ? formatDate(parseDay(selectedDate), lang)
+        : `${MONTH_FULL[lang][month - 1]} ${year}`;
 
   // The bookings in the period on screen, and everyone who's booked, as CSV:
   // the master picked above, or every master's with "All masters".
@@ -354,13 +440,18 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {!cleanupView && (
             <>
-              <button
-                className="btn-outline"
-                onClick={() => setView(view === 'year' ? 'month' : 'year')}
-                aria-pressed={view === 'year'}
-              >
-                {view === 'year' ? T.viewMonth : T.viewYear}
-              </button>
+              <div role="group" aria-label={T.viewLabel} style={{ display: 'flex', gap: 4 }}>
+                {[['day', T.viewDay], ['month', T.viewMonth], ['year', T.viewYear]].map(([key, label]) => (
+                  <button
+                    key={key}
+                    className={view === key ? 'btn-primary' : 'btn-outline'}
+                    onClick={() => setView(key)}
+                    aria-pressed={view === key}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <button className="btn-outline" onClick={() => stepCursor(-1)} aria-label={T.prevWeek}>
                 ←
               </button>
@@ -372,7 +463,7 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
                 className="btn-outline"
                 onClick={() => {
                   goToMonth(Number(todayStr().slice(0, 4)), Number(todayStr().slice(5, 7)));
-                  setView('month');
+                  if (view === 'year') setView('month');
                 }}
               >
                 {T.today}
@@ -392,7 +483,7 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
               </option>
             ))}
           </select>
-          <button className="btn-primary" onClick={openAddBooking} disabled={editingBookingId !== null || services.length === 0}>
+          <button className="btn-primary" onClick={() => openAddBooking()} disabled={editingBookingId !== null || services.length === 0}>
             {T.addBookingBtn}
           </button>
         </div>
@@ -402,6 +493,17 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
         <button className="btn-outline" onClick={() => exportFile('bookings')}>⤓ {T.exportBookingsBtn}</button>
         <button className="btn-outline" onClick={() => exportFile('clients')}>⤓ {T.exportClientsBtn}</button>
       </div>
+
+      {allMasters && masters.length > 0 && (
+        <MasterLegend
+          T={T}
+          masters={masters}
+          bookings={bookings}
+          hidden={hiddenMasters}
+          onToggle={toggleMaster}
+          onShowAll={() => setHiddenMasters(new Set())}
+        />
+      )}
 
       {error && <p style={{ margin: 0, fontSize: 13, color: 'var(--terracotta)' }}>{T[error]}</p>}
 
@@ -435,10 +537,28 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
               <YearGrid
                 T={T}
                 lang={lang}
-                bookings={bookings}
+                bookings={shown}
                 selectedMonth={selectedMonth}
                 onPickMonth={(m) => goToMonth(year, m)}
               />
+            ) : view === 'day' ? (
+              dayColumns.length === 0 ? (
+                <p style={{ margin: 0, fontSize: 13.5, color: 'var(--muted)' }}>{T.dayNoMasters}</p>
+              ) : (
+                <DayTimeline
+                  T={T}
+                  lang={lang}
+                  date={selectedDate}
+                  columns={dayColumns.map((c) => ({ ...c, ...dayAvailability.get(c.id ?? 'own') }))}
+                  bookings={(byDate.get(selectedDate) || []).filter((b) => b.status !== 'cancelled')}
+                  onPickBooking={openEditBooking}
+                  onPickSlot={
+                    editingBookingId === null && services.length > 0
+                      ? (masterId, time) => openAddBooking({ masterId: masterId ?? undefined, time })
+                      : null
+                  }
+                />
+              )
             ) : (
               <MonthGrid
                 T={T}
@@ -446,6 +566,7 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
                 year={year}
                 month={month}
                 byDate={byDate}
+                dotsFor={dotsFor}
                 selectedDate={selectedDate}
                 onPickDay={(dateStr) => {
                   setConfirming(false);
@@ -500,7 +621,7 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {listed.map((b) => (
-                <div key={b.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div key={b.id} id={`booking-${b.id}`} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <BookingRow
                     T={T}
                     lang={lang}
@@ -511,6 +632,7 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
                     onToggle={() => toggleOne(b.id)}
                     onEdit={() => openEditBooking(b)}
                     masterName={allMasters ? masterName(b.master_id) : null}
+                    masterColorKey={allMasters ? colorOf(b.master_id) : null}
                     onChangeStatus={(status) => changeStatus(b, status)}
                   />
                   {editingBookingId === b.id && (
@@ -542,6 +664,51 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
   );
 }
 
+// One chip per master in their colour, with their bookings in the period on
+// screen; a chip hides or shows that master's bookings. Colour is never the
+// only sign: each chip and row also carries the name.
+function MasterLegend({ T, masters, bookings, hidden, onToggle, onShowAll }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      {masters.map((m) => {
+        const off = hidden.has(m.id);
+        const count = bookings.filter((b) => b.master_id === m.id).length;
+        return (
+          <button
+            key={m.id}
+            onClick={() => onToggle(m.id)}
+            aria-pressed={!off}
+            title={off ? T.legendShow : T.legendHide}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              minHeight: 32,
+              padding: '4px 11px',
+              borderRadius: 999,
+              border: `1.5px solid ${off ? 'var(--line)' : masterColor(m.color)}`,
+              background: off ? 'transparent' : 'var(--surface)',
+              color: off ? 'var(--muted)' : 'var(--ink)',
+              fontSize: 13,
+              fontWeight: 600,
+              textDecoration: off ? 'line-through' : 'none',
+            }}
+          >
+            <MasterDot color={m.color} style={{ opacity: off ? 0.35 : 1 }} />
+            {m.name || m.slug}
+            <span style={{ fontWeight: 500, color: 'var(--muted)' }}>{count}</span>
+          </button>
+        );
+      })}
+      {hidden.size > 0 && (
+        <button onClick={onShowAll} style={{ fontSize: 13, fontWeight: 600, color: 'var(--sage)', padding: '4px 6px' }}>
+          {T.legendShowAll}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function parseDay(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d);
@@ -549,7 +716,7 @@ function parseDay(dateStr) {
 
 // The month at a glance: every day of the month with how much is booked on it,
 // and the open day highlighted. Picking a day fills the list underneath.
-function MonthGrid({ T, lang, year, month, byDate, selectedDate, onPickDay }) {
+function MonthGrid({ T, lang, year, month, byDate, dotsFor, selectedDate, onPickDay }) {
   const total = daysInMonth(year, month);
   const firstWeekday = (new Date(year, month - 1, 1).getDay() + 6) % 7; // Monday-first
   const cells = [...Array(firstWeekday).fill(null), ...Array.from({ length: total }, (_, i) => i + 1)];
@@ -574,11 +741,16 @@ function MonthGrid({ T, lang, year, month, byDate, selectedDate, onPickDay }) {
           const count = (byDate.get(dateStr) || []).length;
           const isSelected = dateStr === selectedDate;
           const isToday = dateStr === today;
+          // With every master on screen: whose the day's bookings are, as a dot
+          // per master (the count for each in the tooltip and for screen readers).
+          const dots = dotsFor(dateStr);
+          const breakdown = dots?.map((d) => `${d.name} ${d.count}`).join(' · ');
           return (
             <button
               key={dateStr}
               onClick={() => onPickDay(dateStr)}
-              aria-label={`${day}, ${count} ${pluralize(count, lang, 'bookings')}`}
+              title={breakdown || undefined}
+              aria-label={`${day}, ${count} ${pluralize(count, lang, 'bookings')}${breakdown ? `: ${breakdown}` : ''}`}
               aria-pressed={isSelected}
               style={{
                 display: 'flex',
@@ -595,7 +767,15 @@ function MonthGrid({ T, lang, year, month, byDate, selectedDate, onPickDay }) {
               }}
             >
               <span style={{ fontSize: 13.5, fontWeight: isSelected || isToday ? 700 : 500 }}>{day}</span>
-              {count > 0 && (
+              {dots && dots.length > 0 ? (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap', justifyContent: 'center', maxWidth: '100%' }}>
+                  {dots.slice(0, 5).map((d) => (
+                    <MasterDot key={d.id} color={d.color} size={8} />
+                  ))}
+                  {dots.length > 5 && <span style={{ fontSize: 10, color: 'var(--muted)' }}>+{dots.length - 5}</span>}
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', marginLeft: 1 }}>{count}</span>
+                </span>
+              ) : count > 0 && (
                 <span
                   style={{
                     fontSize: 11,
@@ -671,7 +851,7 @@ function YearGrid({ T, lang, bookings, selectedMonth, onPickMonth }) {
   );
 }
 
-function BookingRow({ T, lang, booking, showDate, masterName, selected, isEditing, onToggle, onEdit, onChangeStatus }) {
+function BookingRow({ T, lang, booking, showDate, masterName, masterColorKey, selected, isEditing, onToggle, onEdit, onChangeStatus }) {
   const { dateObj, time } = splitLocalDateTime(booking.start_time);
   // Cancelling is the one status that reaches the guest (a Telegram message if
   // they turned reminders on), and a message can't be unsent — so it alone asks
@@ -680,7 +860,15 @@ function BookingRow({ T, lang, booking, showDate, masterName, selected, isEditin
   return (
     <div
       className="card"
-      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+        flexWrap: 'wrap',
+        // With every master on screen, whose visit it is, down the left edge.
+        ...(masterColorKey ? { borderLeft: `5px solid ${masterColor(masterColorKey)}` } : null),
+      }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         {/* Only cancelled bookings can be deleted, so only they get a checkbox. */}
@@ -693,7 +881,12 @@ function BookingRow({ T, lang, booking, showDate, masterName, selected, isEditin
             {time} · {(booking.items ?? []).map((z) => localName(z, lang)).join(' · ')}
           </span>
           <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-            {masterName && <strong style={{ color: 'var(--sage)' }}>{masterName} · </strong>}
+            {masterName && (
+              <strong style={{ color: 'var(--ink)' }}>
+                <MasterDot color={masterColorKey} size={8} style={{ marginRight: 5 }} />
+                {masterName} ·{' '}
+              </strong>
+            )}
             {booking.customer_name} · {booking.customer_phone} · {formatPrice(booking.price_at_booking, lang)}
           </span>
         </div>

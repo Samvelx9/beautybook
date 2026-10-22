@@ -1692,3 +1692,22 @@ test("a salon's master changes only what is theirs alone, and books only what th
   const handOver = await call('PATCH', `/salon/masters/${a.id}/bookings/${aVisit.body.id}`, { token: owner, body: { masterId: b.id } });
   assert.deepEqual([handOver.status, handOver.body.error], [400, 'not_performed']);
 });
+
+test("each of a salon's masters has a colour: automatic and distinct, or the owner's pick", async () => {
+  const owner = await login('lotus@salon.example', 'correct horse battery');
+  const { body: lotus } = await call('GET', '/salon', { token: owner });
+  const [a, b] = lotus.masters;
+  assert.deepEqual([a.color, b.color, a.colorChosen], ['rose', 'orange', false]);
+
+  assert.equal((await call('PATCH', `/salon/masters/${b.id}`, { token: owner, body: { color: 'plaid' } })).body.error, 'invalid_color');
+  const picked = await call('PATCH', `/salon/masters/${b.id}`, { token: owner, body: { color: 'blue' } });
+  assert.deepEqual([picked.body.color, picked.body.colorChosen], ['blue', true]);
+  // The master sees the same colour in their own panel.
+  const { rows } = await db.query(`SELECT email FROM users WHERE master_id = $1`, [b.id]);
+  await db.query(`UPDATE users SET password_hash = (SELECT password_hash FROM users WHERE email = 'lotus@salon.example') WHERE master_id = $1`, [b.id]);
+  const masterToken = await login(rows[0].email, 'correct horse battery');
+  assert.equal((await call('GET', '/admin/account', { token: masterToken })).body.master.color, 'blue');
+
+  const automatic = await call('PATCH', `/salon/masters/${b.id}`, { token: owner, body: { color: null } });
+  assert.deepEqual([automatic.body.color, automatic.body.colorChosen], ['orange', false]);
+});

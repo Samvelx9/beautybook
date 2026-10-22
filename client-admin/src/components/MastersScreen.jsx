@@ -3,6 +3,7 @@ import { api, ApiError } from '../api.js';
 import { PLATFORM_DOMAIN, localName } from '../i18n.js';
 import { suggestSlug, useSlugStatus } from '../slug.js';
 import ConfirmInline from './ConfirmInline.jsx';
+import { MASTER_COLORS, MasterDot, masterColor } from '../masterColors.jsx';
 
 const muted = { margin: 0, fontSize: 13, lineHeight: 1.5, color: 'var(--muted)' };
 
@@ -262,6 +263,10 @@ function MasterCard({ T, lang, master, categories, services, onChanged, onError 
     setSlugDraft(null);
     await onChanged();
   });
+  const saveColor = (color) => act(async () => {
+    await api.updateMaster(master.id, { color });
+    await onChanged();
+  });
   const saveShare = (sharePercent) => act(async () => {
     await api.updateMaster(master.id, { sharePercent });
     setShareDraft(null);
@@ -399,6 +404,40 @@ function MasterCard({ T, lang, master, categories, services, onChanged, onError 
             )}
             <button className="btn-outline" onClick={() => setShareDraft(null)} disabled={busy}>{T.cancelBtn}</button>
           </>
+        )}
+      </div>
+
+      {/* Their colour on the Bookings screen: picked here, or automatic. */}
+      <div role="radiogroup" aria-label={T.masterColorLabel} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 13, marginRight: 4 }}>{T.masterColorLabel}</span>
+        {MASTER_COLORS.map((key) => {
+          const current = master.color === key;
+          return (
+            <button
+              key={key}
+              role="radio"
+              aria-checked={current}
+              aria-label={T.masterColorNames[key]}
+              title={T.masterColorNames[key]}
+              onClick={() => !current && saveColor(key)}
+              disabled={busy}
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: '50%',
+                display: 'grid',
+                placeItems: 'center',
+                border: current ? `2px solid ${masterColor(key)}` : '2px solid transparent',
+              }}
+            >
+              <MasterDot color={key} size={18} />
+            </button>
+          );
+        })}
+        {master.colorChosen && (
+          <button onClick={() => saveColor(null)} disabled={busy} style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--sage)', marginLeft: 4 }}>
+            {T.masterColorAuto}
+          </button>
         )}
       </div>
 
