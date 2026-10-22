@@ -20,6 +20,7 @@ import { notifyMaster } from '../services/telegram.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 import { cleanString, isValidDate, isValidTime } from '../lib/validate.js';
 import { rateLimit } from '../lib/rateLimit.js';
+import { RECENT_BOOKINGS_SQL } from '../lib/popularity.js';
 import {
   getProfilePhoto,
   getProfileRow,
@@ -110,7 +111,9 @@ const GUEST_SERVICE_COLUMNS = `s.id, s.category_id, s.slug, s.name_en, s.name_ru
 
 // GET /api/categories — the treatments on the landing page, each with the
 // price list (zones) the guest sees after picking one: the salon's shared
-// list, narrowed to what this master performs. A treatment with zones on sale
+// list, narrowed to what this master performs. Zones come most-booked first,
+// so the ones most guests are after sit at the top; the price-list order
+// breaks ties and places zones nobody has booked lately. A treatment with zones on sale
 // that this master does none of isn't theirs to show.
 guestRouter.get('/categories', asyncHandler(async (req, res) => {
   const { rows: categories } = await pool.query(
@@ -127,7 +130,9 @@ guestRouter.get('/categories', asyncHandler(async (req, res) => {
                      WHERE ms.master_id = $2 AND ms.service_id = s.id) AS performed
      FROM services s
      JOIN service_categories c ON c.id = s.category_id
-     WHERE s.organization_id = $1 AND s.is_active = true ORDER BY s.sort_order, s.id`,
+     LEFT JOIN (${RECENT_BOOKINGS_SQL}) pop ON pop.service_id = s.id
+     WHERE s.organization_id = $1 AND s.is_active = true
+     ORDER BY COALESCE(pop.recent_bookings, 0) DESC, s.sort_order, s.id`,
     [req.master.organization_id, req.master.id]
   );
 
@@ -163,7 +168,9 @@ guestRouter.get('/services', asyncHandler(async (req, res) => {
      FROM services s
      JOIN service_categories c ON c.id = s.category_id
      JOIN master_services ms ON ms.service_id = s.id AND ms.master_id = $2
-     WHERE s.organization_id = $1 AND s.is_active = true ORDER BY s.sort_order, s.id`,
+     LEFT JOIN (${RECENT_BOOKINGS_SQL}) pop ON pop.service_id = s.id
+     WHERE s.organization_id = $1 AND s.is_active = true
+     ORDER BY COALESCE(pop.recent_bookings, 0) DESC, s.sort_order, s.id`,
     [req.master.organization_id, req.master.id]
   );
   res.json(rows);
@@ -686,9 +693,10 @@ async function salonServices(salon) {
      JOIN service_categories c ON c.id = s.category_id
      JOIN master_services ms ON ms.service_id = s.id
      JOIN masters m ON m.id = ms.master_id AND m.deactivated_at IS NULL
+     LEFT JOIN (${RECENT_BOOKINGS_SQL}) pop ON pop.service_id = s.id
      WHERE s.organization_id = $1 AND s.is_active = true
-     GROUP BY s.id, c.is_hourly
-     ORDER BY s.sort_order, s.id`,
+     GROUP BY s.id, c.is_hourly, pop.recent_bookings
+     ORDER BY COALESCE(pop.recent_bookings, 0) DESC, s.sort_order, s.id`,
     [salon.id]
   );
   return rows.map(({ master_ids: masterIds, ...service }) => ({ ...service, masterIds }));

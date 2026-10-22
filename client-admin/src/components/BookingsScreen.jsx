@@ -852,7 +852,11 @@ function BookingForm({ T, lang, title, form, setForm, services, categories, mast
         >
           <option value="">{T.addZone}</option>
           {categories.map((c) => {
-            const rows = services.filter((s) => s.category_id === c.id && !chosenIds.includes(String(s.id)));
+            // Most-booked zones first (last 90 days, same order guests see);
+            // the sort is stable, so ties keep the price-list order.
+            const rows = services
+              .filter((s) => s.category_id === c.id && !chosenIds.includes(String(s.id)))
+              .sort((a, b) => (b.recent_bookings ?? 0) - (a.recent_bookings ?? 0));
             if (rows.length === 0) return null;
             return (
               <optgroup key={c.id} label={localName(c, lang)}>

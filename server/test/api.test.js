@@ -1566,3 +1566,55 @@ test('the operator overview: sign-ups per week, states, conversion and revenue',
   assert.equal(o.mrr.minor, Object.values(o.mrr.byPlan).reduce((sum, p) => sum + p.mrrMinor, 0));
   assert.ok(o.conversion.converted >= 1 && o.conversion.converted <= o.conversion.trialsEnded);
 });
+
+test('the most-booked zones come first for guests; the price list keeps its own order', async () => {
+  // Its own address: the earlier tests used up this one's sign-ups and bookings.
+  const headers = { 'X-Real-IP': '198.51.100.21' };
+  const signedUp = await call('POST', '/auth/signup', {
+    headers,
+    body: {
+      email: 'poppy@example.com',
+      password: 'correct horse battery',
+      slug: 'poppy',
+      displayName: 'Master poppy',
+      languages: ['ru', 'en'],
+      defaultLang: 'ru',
+    },
+  });
+  assert.equal(signedUp.status, 201, JSON.stringify(signedUp.body));
+  const { token } = signedUp.body;
+  const cat = await call('POST', '/admin/categories', { token, body: { nameRu: 'Брови' } });
+  const zone = async (nameRu) => {
+    const res = await call('POST', '/admin/services', {
+      token,
+      body: { nameRu, categoryId: cat.body.id, durationMinutes: 30, price: 4000 },
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    return res.body.id;
+  };
+  const first = await zone('Коррекция');
+  const second = await zone('Окрашивание');
+
+  const booked = await call('POST', '/bookings', {
+    slug: 'poppy',
+    headers,
+    body: { date, time: '12:00', customerName: 'Guest', customerPhone: '+37400000077', items: [{ serviceId: second }] },
+  });
+  assert.equal(booked.status, 201, JSON.stringify(booked.body));
+
+  const categories = await call('GET', '/categories', { slug: 'poppy' });
+  assert.deepEqual(categories.body.find((c) => c.id === cat.body.id).services.map((s) => s.id), [second, first]);
+  const services = await call('GET', '/services', { slug: 'poppy' });
+  assert.deepEqual(services.body.map((s) => s.id), [second, first]);
+
+  // The admin's list stays in price-list order and carries the counts the
+  // booking form sorts by.
+  const admin = await call('GET', '/admin/services', { token });
+  assert.deepEqual(admin.body.map((s) => [s.id, s.recent_bookings]), [[first, 0], [second, 1]]);
+
+  // A cancelled visit no longer counts.
+  const cancelled = await call('PATCH', `/admin/bookings/${booked.body.id}/status`, { token, body: { status: 'cancelled' } });
+  assert.equal(cancelled.status, 200, JSON.stringify(cancelled.body));
+  const after = await call('GET', '/services', { slug: 'poppy' });
+  assert.deepEqual(after.body.map((s) => s.id), [first, second]);
+});

@@ -23,6 +23,7 @@ import { applyTemplate, TEMPLATES } from '../services/templates.js';
 import { EMAIL_PATTERN, readCurrency, readLanguages } from './auth.js';
 import { changeOwnPassword } from '../services/accounts.js';
 import { sendCsv } from '../lib/csv.js';
+import { RECENT_BOOKINGS_SQL } from '../lib/popularity.js';
 import { calendarRouter } from './calendar.js';
 
 // The admin panel of one login: an organization's owner, or one of a salon's
@@ -444,9 +445,11 @@ adminRouter.delete('/categories/:id', requireOwner, asyncHandler(async (req, res
 
 adminRouter.get('/services', asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT ${SERVICE_COLUMNS_WITH_MODE}
+    `SELECT ${SERVICE_COLUMNS_WITH_MODE},
+            COALESCE(pop.recent_bookings, 0) AS recent_bookings
      FROM services s
      JOIN service_categories c ON c.id = s.category_id
+     LEFT JOIN (${RECENT_BOOKINGS_SQL}) pop ON pop.service_id = s.id
      WHERE s.organization_id = $1
      ORDER BY s.sort_order, s.id`,
     [req.organization.id]

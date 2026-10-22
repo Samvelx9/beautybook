@@ -453,12 +453,18 @@ function groupByTreatment(rows, lang, withShare) {
   const groups = new Map();
   for (const r of rows) {
     if (!groups.has(r.category_id)) {
-      groups.set(r.category_id, { label: localName(r, lang, 'category_name'), value: 0, rows: [] });
+      groups.set(r.category_id, { label: localName(r, lang, 'category_name'), value: 0, count: 0, rows: [] });
     }
     const group = groups.get(r.category_id);
     group.value += r.total;
+    group.count += r.count;
     if (withShare) group.share = (group.share ?? 0) + r.ownerShare;
-    group.rows.push({ label: localName(r, lang), value: r.total, share: withShare ? r.ownerShare : undefined });
+    group.rows.push({
+      label: localName(r, lang),
+      value: r.total,
+      count: r.count,
+      share: withShare ? r.ownerShare : undefined,
+    });
   }
   return [...groups.values()].sort((a, b) => b.value - a.value);
 }
@@ -490,7 +496,8 @@ function BreakdownCard({ title, rows, groups, lang, noData, shareLabel, note }) 
               }}
             >
               <span style={{ flex: 1 }}>{g.label}</span>
-              <span>{formatPrice(g.value, lang)}</span>
+              <span style={COUNT_COLUMN}>{g.count}</span>
+              <span style={AMOUNT_COLUMN}>{formatPrice(g.value, lang)}</span>
               {g.share !== undefined && <span style={SHARE_COLUMN}>{formatPrice(g.share, lang)}</span>}
             </div>
             {g.rows.map((r, j) => (
@@ -507,12 +514,18 @@ function BreakdownCard({ title, rows, groups, lang, noData, shareLabel, note }) 
 }
 
 // The amount, and — for a salon's owner — their share of it in a second column.
+// Income by zone also carries how many completed visits included each zone, in
+// a column before the amount; fixed widths keep the numbers lined up row to row.
 const SHARE_COLUMN = { minWidth: 88, textAlign: 'right' };
+const COUNT_COLUMN = { minWidth: 36, textAlign: 'right' };
+const AMOUNT_COLUMN = { minWidth: 88, textAlign: 'right' };
 function BreakdownRow({ row, lang, indent = false }) {
+  const withCount = row.count !== undefined;
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13.5, paddingLeft: indent ? 12 : 0 }}>
       <span style={{ flex: 1 }}>{row.label}</span>
-      <span style={{ fontWeight: 600 }}>{formatPrice(row.value, lang)}</span>
+      {withCount && <span style={{ ...COUNT_COLUMN, color: 'var(--muted)' }}>{row.count}</span>}
+      <span style={{ fontWeight: 600, ...(withCount && AMOUNT_COLUMN) }}>{formatPrice(row.value, lang)}</span>
       {row.share !== undefined && (
         <span style={{ ...SHARE_COLUMN, fontWeight: 600, color: 'var(--sage)' }}>{formatPrice(row.share, lang)}</span>
       )}
