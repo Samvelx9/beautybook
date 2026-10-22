@@ -72,6 +72,35 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
     const m = masters.find((x) => x.id === id);
     return m ? m.name || m.slug : '';
   };
+  // Masters with the same kind of work side by side: grouped by their main
+  // treatment (the one they perform most services in), groups in the price
+  // list's order, the salon's own order within a group. So two barbers sit
+  // next to each other in the day view, the legend and the month dots.
+  // Hidden services too: a booking may hold a zone that's since come off
+  // sale, and the day view still has to know who performs it.
+  const [allServices, setAllServices] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const mainTreatment = (m) => {
+    const counts = new Map();
+    for (const s of allServices) {
+      if (m.serviceIds?.includes(s.id)) counts.set(s.category_id, (counts.get(s.category_id) ?? 0) + 1);
+    }
+    let best = null;
+    for (const c of categories) {
+      const n = counts.get(c.id) ?? 0;
+      if (n > 0 && (!best || n > best.n)) best = { n, order: c.sort_order, id: c.id };
+    }
+    return best;
+  };
+  const byWork = masters
+    .map((m, index) => ({ m, index, main: mainTreatment(m) }))
+    .sort((a, b) =>
+      (a.main ? 0 : 1) - (b.main ? 0 : 1) ||
+      (a.main?.order ?? 0) - (b.main?.order ?? 0) ||
+      (a.main?.id ?? 0) - (b.main?.id ?? 0) ||
+      a.index - b.index
+    )
+    .map((x) => x.m);
   // Every master's colour (the server picks one when the owner hasn't).
   const colorOf = (id) => (salon?.masters ?? []).find((x) => x.id === id)?.color;
   // With every master on screen, the legend's chips hide and show each one's
@@ -95,10 +124,6 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
   const [statusFilter, setStatusFilter] = useState(() => routeParam('status', (v) => v in STATUS_KEY, ''));
   const [bookings, setBookings] = useState([]);
   const [services, setServices] = useState([]);
-  // Hidden ones too: a booking may hold a zone that's since come off sale, and
-  // the day view still has to know who performs it.
-  const [allServices, setAllServices] = useState([]);
-  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
@@ -178,7 +203,7 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
   // the one picked, or the login's own calendar. Each carries that weekday's
   // hours and the day's blocks, so time off is drawn hatched.
   const dayColumns = allMasters
-    ? masters.filter((m) => !hiddenMasters.has(m.id)).map((m) => ({ id: m.id, name: m.name || m.slug, color: m.color }))
+    ? byWork.filter((m) => !hiddenMasters.has(m.id)).map((m) => ({ id: m.id, name: m.name || m.slug, color: m.color }))
     : [{
         id: calendarMaster?.id ?? null,
         name: calendarMaster ? calendarMaster.name || calendarMaster.slug : T.dayOwnColumn,
@@ -218,7 +243,7 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
   const dotsFor = (dateStr) => {
     if (!allMasters) return null;
     const day = byDate.get(dateStr) || [];
-    return masters
+    return byWork
       .map((m) => ({ id: m.id, name: m.name || m.slug, color: m.color, count: day.filter((b) => b.master_id === m.id).length }))
       .filter((d) => d.count > 0);
   };
@@ -236,9 +261,9 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
 
   // A booking dropped in the day view: a new time that day, and maybe another
   // master. The database still refuses an overlap the screen didn't foresee.
-  async function moveBooking(booking, { masterId, time }) {
+  async function moveBooking(booking, { masterId, time, date }) {
     setError(null);
-    const payload = { date: selectedDate, time };
+    const payload = { date: date ?? selectedDate, time };
     if (masterId !== null && booking.master_id !== undefined && masterId !== booking.master_id) payload.masterId = masterId;
     try {
       await api.updateBooking(booking.id, payload, booking.master_id ?? undefined);
@@ -528,7 +553,7 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
       {allMasters && masters.length > 0 && (
         <MasterLegend
           T={T}
-          masters={masters}
+          masters={byWork}
           bookings={bookings}
           hidden={hiddenMasters}
           onToggle={toggleMaster}
@@ -559,7 +584,9 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
 
       {cleanupView && <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>{T.cancelledViewNote}</p>}
 
-      {loading ? (
+      {/* The day view stays up while the next day loads: a booking being
+          dragged to another day is carried across that change. */}
+      {loading && view !== 'day' ? (
         <p style={{ color: 'var(--muted)' }}>{T.loading}</p>
       ) : (
         <>
@@ -574,9 +601,6 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
               />
             ) : view === 'day' ? (
               <>
-              <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)' }}>
-                {dayColumns.length > 1 ? T.timelineDragHintSalon : T.timelineDragHint}
-              </p>
               {dayColumns.length === 0 ? (
                 <p style={{ margin: 0, fontSize: 13.5, color: 'var(--muted)' }}>{T.dayNoMasters}</p>
               ) : (
@@ -593,7 +617,13 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
                       : null
                   }
                   onMoveBooking={editingBookingId === null ? moveBooking : null}
+                  hint={dayColumns.length > 1 ? T.timelineDragHintSalon : T.timelineDragHint}
                   canTake={canTake}
+                  onChangeDay={(d) => {
+                    setCursor(d.slice(0, 7) + '-01');
+                    setSelectedMonth(Number(d.slice(5, 7)));
+                    setSelectedDate(d);
+                  }}
                 />
               )}
               </>
@@ -654,7 +684,7 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
 
           {listed.length === 0 ? (
             <p style={{ color: 'var(--muted)', fontSize: 13.5 }}>
-              {cleanupView ? T.noBookingsThisPeriod : view === 'year' ? T.noBookingsThisMonth : T.noBookingsThisDay}
+              {loading ? T.loading : cleanupView ? T.noBookingsThisPeriod : view === 'year' ? T.noBookingsThisMonth : T.noBookingsThisDay}
             </p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { splitLocalDateTime, todayLocalStr } from 'salon-shared/time';
-import { localName } from '../i18n.js';
+import { dayLabel, localName } from '../i18n.js';
 import { MasterDot, masterColor, masterTint } from '../masterColors.jsx';
 
 // One day as a timeline, a column per master side by side: bookings are blocks
@@ -13,7 +13,9 @@ import { MasterDot, masterColor, masterTint } from '../masterColors.jsx';
 // column (`onMoveBooking`). While it's dragged, only the columns of masters
 // who can take it (`canTake`: they perform everything in it) stay live; the
 // rest are dimmed and refuse the drop, and so does a spot that would overlap
-// another booking. A press that barely moves is still a click.
+// another booking. A press that barely moves is still a click. To move it to
+// another day, a strip of days appears while dragging: holding the booking
+// over one (`onChangeDay`) turns the timeline to that day, and the drag goes on.
 //
 // `columns`: [{ id, name, color, hours, blocks }] — `hours` the weekly_hours
 // row for this weekday (null while loading), `blocks` that day's
@@ -22,6 +24,12 @@ import { MasterDot, masterColor, masterTint } from '../masterColors.jsx';
 const PX_PER_MIN = 1.2;
 const SNAP_MIN = 15;
 const DRAG_THRESHOLD_PX = 5;
+const DAY_HOVER_MS = 450;
+const addDays = (dateStr, n) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + n));
+  return dt.toISOString().slice(0, 10);
+};
 const columnKey = (c) => c.id ?? 'own';
 const toMin = (t) => {
   const [h, m] = String(t).slice(0, 5).split(':').map(Number);
@@ -50,7 +58,7 @@ function closedStretches(hours, blocks, from, to) {
 
 const HATCH = 'repeating-linear-gradient(135deg, var(--line) 0 2px, transparent 2px 8px)';
 
-export default function DayTimeline({ T, lang, date, columns, bookings, onPickBooking, onPickSlot, onMoveBooking, canTake }) {
+export default function DayTimeline({ T, lang, date, columns, bookings, onPickBooking, onPickSlot, onMoveBooking, canTake, onChangeDay, hint }) {
   const spans = new Map(bookings.map((b) => [b.id, span(b, date)]));
   const columnEls = useRef(new Map());
   const scroller = useRef(null);
@@ -64,8 +72,16 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
     dragRef.current = next;
     setDragState(next);
   };
-  // A drag ends with a click on the block; that click mustn't open the form.
+  // A drag ends with a click; that click mustn't open a form. It comes straight
+  // after the pointer is released, so the flag only lives until then.
   const justDragged = useRef(false);
+  // The day chips shown while dragging, and the one being held over.
+  const dayChips = useRef(new Map());
+  const dayHover = useRef(null);
+  const stopDayHover = () => {
+    clearTimeout(dayHover.current?.timer);
+    dayHover.current = null;
+  };
   const inColumn = (c) => (b) => columns.length === 1 || b.master_id === c.id;
 
   // The axis covers everyone's working hours and every booking, on whole
@@ -85,7 +101,7 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
   const nowMin = isToday ? toMin(splitLocalDateTime(new Date().toISOString()).time) : null;
 
   function pickSlot(event, column) {
-    if (!onPickSlot) return;
+    if (!onPickSlot || justDragged.current) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const minute = from + Math.floor((event.clientY - rect.top) / PX_PER_MIN / SNAP_MIN) * SNAP_MIN;
     onPickSlot(column.id, toTime(Math.min(Math.max(minute, from), to - SNAP_MIN)));
@@ -105,6 +121,9 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
     }
     setDrag({
       booking,
+      // Where it was: compared at the drop, whatever day is on screen by then.
+      originDate: date,
+      originStart: s.start,
       length: s.end - s.start,
       grabMin: (event.clientY - rect.top) / PX_PER_MIN + from - s.start,
       x: event.clientX,
@@ -119,6 +138,20 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
     const drag = dragRef.current;
     if (!drag) return;
     if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < DRAG_THRESHOLD_PX) return;
+    // Over a day chip: after a moment there, that day comes up.
+    const chip = [...dayChips.current].find(([, el]) => {
+      const r = el.getBoundingClientRect();
+      return event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom;
+    })?.[0];
+    if (chip) {
+      if (dayHover.current?.date !== chip) {
+        stopDayHover();
+        dayHover.current = chip === date ? { date: chip } : { date: chip, timer: setTimeout(() => onChangeDay(chip), DAY_HOVER_MS) };
+      }
+      setDrag({ ...drag, moved: true, target: null });
+      return;
+    }
+    stopDayHover();
     // Near either edge of a timeline wider than the screen, it scrolls, so a
     // master whose column is out of view can still be reached.
     const box = scroller.current?.getBoundingClientRect();
@@ -157,20 +190,88 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
   function endDrag() {
     const drag = dragRef.current;
     if (!drag) return;
+    stopDayHover();
     const { booking, moved, target } = drag;
     setDrag(null);
     if (!moved) return;
     justDragged.current = true;
-    const from_ = spans.get(booking.id).start;
+    setTimeout(() => {
+      justDragged.current = false;
+    }, 0);
     const sameColumn = columns.length === 1 || target?.column.id === booking.master_id;
-    if (target?.ok && (target.start !== from_ || !sameColumn)) {
-      onMoveBooking(booking, { masterId: target.column.id, time: toTime(target.start) });
+    if (target?.ok && (date !== drag.originDate || target.start !== drag.originStart || !sameColumn)) {
+      onMoveBooking(booking, { masterId: target.column.id, time: toTime(target.start), date });
     }
   }
 
+  // While a booking is held, the pointer is followed on the whole window: the
+  // block it started on is gone once another day comes up. Registered afresh
+  // each render, so the handlers see that day's columns and bookings.
+  useEffect(() => {
+    if (!drag) return undefined;
+    const cancel = () => {
+      stopDayHover();
+      setDrag(null);
+    };
+    window.addEventListener('pointermove', moveDrag);
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', cancel);
+    return () => {
+      window.removeEventListener('pointermove', moveDrag);
+      window.removeEventListener('pointerup', endDrag);
+      window.removeEventListener('pointercancel', cancel);
+    };
+  });
+
   const dragging = drag?.moved ? drag : null;
+  const chipDates = dragging && onChangeDay ? Array.from({ length: 7 }, (_, i) => addDays(dragging.originDate, i - 3)) : [];
+  const parseDate = (d) => {
+    const [y, m, day] = d.split('-').map(Number);
+    return new Date(y, m - 1, day);
+  };
 
   return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    {/* One row, the same height either way so the timeline never jumps under
+        the pointer: the hint, or while dragging, the days to hold it over. */}
+    {chipDates.length === 0 ? (
+      hint && (
+        <div style={{ minHeight: 46, display: 'flex', alignItems: 'center' }}>
+          <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{hint}</span>
+        </div>
+      )
+    ) : (
+      <div style={{ minHeight: 46, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12.5, color: 'var(--muted)', marginRight: 4 }}>{T.dragToDay}</span>
+        {chipDates.map((d) => {
+          const current = d === date;
+          const held = dayHover.current?.date === d && !current;
+          return (
+            <span
+              key={d}
+              ref={(el) => (el ? dayChips.current.set(d, el) : dayChips.current.delete(d))}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                minWidth: 58,
+                padding: '6px 8px',
+                borderRadius: 10,
+                fontSize: 12,
+                fontWeight: 600,
+                border: current ? '1.5px solid var(--sage)' : held ? '1.5px dashed var(--sage)' : '1px solid var(--line)',
+                background: current ? 'var(--sage-light)' : 'var(--surface)',
+                userSelect: 'none',
+              }}
+            >
+              {/* The weekday (an index past "today"/"tomorrow" gives the plain name). */}
+              <span>{dayLabel(parseDate(d), 2, lang)}</span>
+              <span style={{ fontSize: 14 }}>{parseDate(d).getDate()}</span>
+            </span>
+          );
+        })}
+      </div>
+    )}
     <div ref={scroller} className="card" style={{ padding: 0, overflowX: 'auto' }}>
       <div
         style={{
@@ -272,9 +373,6 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
                   <button
                     key={b.id}
                     onPointerDown={(e) => startDrag(e, b, c)}
-                    onPointerMove={moveDrag}
-                    onPointerUp={endDrag}
-                    onPointerCancel={() => setDrag(null)}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (justDragged.current) {
@@ -376,6 +474,7 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
           );
         })}
       </div>
+    </div>
     </div>
   );
 }
