@@ -49,7 +49,9 @@ Staging is live at **https://app.beautybookam.duckdns.org**; masters' pages are 
   the drop, and a spot that would overlap says so. Across masters, a strip of days appears
   while dragging — holding the booking over one turns the timeline to that day and the drag
   carries on; in the week view it's just another column. Near the edge a wide timeline
-  scrolls. Mouse and touch.
+  scrolls. Mouse and touch. **A drop asks first**: the booking waits, outlined where it was
+  dropped, under "Move Gor from Fri 23 10:30 · Aram to Fri 23 17:00 · Tigran? [Move]
+  [Cancel]"; only Move saves, and Cancel, Escape, another drag or another day put it back.
 - **Status colours** in one calendar's week: confirmed yellow, completed green, cancelled or
   no-show red, with a legend; cancelled bookings show struck through and share the column
   with a booking that took their time. Across masters the colour stays the master's. The

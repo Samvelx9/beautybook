@@ -5,6 +5,8 @@
 export const PLATFORM_STRINGS = {
   en: {
     viewDay: 'Day',
+    moveQuestion: (who, from, to) => `Move ${who} from ${from} to ${to}?`,
+    moveBtn: 'Move',
     viewWeek: 'Week',
     timelineDragHint: 'Drag a booking to move it to another time or day.',
     timelineDragHintSalon: 'Drag a booking to another time, day or master — only masters who do its services stay lit while you drag.',
@@ -237,6 +239,8 @@ export const PLATFORM_STRINGS = {
 
   ru: {
     viewDay: 'День',
+    moveQuestion: (who, from, to) => `Перенести запись ${who} с ${from} на ${to}?`,
+    moveBtn: 'Перенести',
     viewWeek: 'Неделя',
     timelineDragHint: 'Перетащите запись, чтобы перенести её на другое время или день.',
     timelineDragHintSalon: 'Перетащите запись на другое время, день или к другому мастеру — пока вы тянете, активны только мастера, выполняющие её услуги.',
@@ -469,6 +473,8 @@ export const PLATFORM_STRINGS = {
 
   hy: {
     viewDay: 'Օր',
+    moveQuestion: (who, from, to) => `Տեղափոխե՞լ ${who}-ի գրանցումը ${from}-ից ${to}։`,
+    moveBtn: 'Տեղափոխել',
     viewWeek: 'Շաբաթ',
     timelineDragHint: 'Քաշեք գրանցումը՝ այն այլ ժամի կամ օրվա տեղափոխելու համար։',
     timelineDragHintSalon: 'Քաշեք գրանցումը այլ ժամի, օրվա կամ վարպետի մոտ․ քաշելիս ակտիվ են միայն նրա ծառայությունները մատուցող վարպետները։',
