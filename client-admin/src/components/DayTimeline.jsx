@@ -15,8 +15,8 @@ import { MasterDot, masterColor, masterTint } from '../masterColors.jsx';
 // (`canTake`: their master performs everything in it) stay live; the rest are
 // dimmed and refuse the drop, and so does a spot that would overlap another
 // booking. A press that barely moves is still a click. A drop only proposes the
-// move: it waits, outlined where it was dropped, until Move is pressed (Cancel,
-// Escape or another drag put it back). With a column per
+// move: a pop-up asks to confirm it, with the booking outlined where it was
+// dropped meanwhile; Cancel, Escape or a click outside put it back. With a column per
 // master, a strip of days appears while dragging: holding the booking over one
 // (`onChangeDay`) turns the timeline to that day, and the drag goes on.
 //
@@ -99,12 +99,6 @@ export default function DayTimeline({
   // A different week or day on screen drops the question.
   const screenKey = columns.map((c) => c.key + c.date).join();
   useEffect(() => setPending(null), [screenKey]);
-  useEffect(() => {
-    if (!pending) return undefined;
-    const onKey = (e) => e.key === 'Escape' && setPending(null);
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [pending]);
   // A drag ends with a click; that click mustn't open a form. It comes straight
   // after the pointer is released, so the flag only lives until then.
   const justDragged = useRef(false);
@@ -243,7 +237,7 @@ export default function DayTimeline({
 
   // "Fri 23 10:30", and with a column per master, " · Aram".
   const whenWhere = (date, start, masterLabel) =>
-    `${dayLabel(parseDate(date), 2, lang)} ${parseDate(date).getDate()} ${toTime(start)}${masterLabel ? ` · ${masterLabel}` : ''}`;
+    `${dayLabel(parseDate(date), 2, lang)} ${parseDate(date).getDate()}, ${toTime(start)}${masterLabel ? ` · ${masterLabel}` : ''}`;
   const masterLabelOf = (column) => (column.masterId === null ? '' : column.label);
 
   function confirmMove() {
@@ -278,19 +272,18 @@ export default function DayTimeline({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
     {/* One row, the same height either way so the timeline never jumps under
         the pointer: the hint, or while dragging, the days to hold it over. */}
-    {pending && !dragging ? (
-      <div role="status" style={{ minHeight: 46, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 13.5 }}>
-          {T.moveQuestion(
-            pending.booking.customer_name,
-            whenWhere(pending.origin.date, pending.origin.start, pending.originLabel),
-            whenWhere(pending.column.date, pending.start, masterLabelOf(pending.column))
-          )}
-        </span>
-        <button className="btn-primary" onClick={confirmMove}>{T.moveBtn}</button>
-        <button className="btn-outline" onClick={() => setPending(null)}>{T.cancelBtn}</button>
-      </div>
-    ) : chipDates.length === 0 ? (
+    {pending && (
+      <MoveDialog
+        T={T}
+        title={T.moveTitle}
+        what={`${pending.booking.customer_name} · ${(pending.booking.items ?? []).map((z) => localName(z, lang)).join(' · ')}`}
+        from={whenWhere(pending.origin.date, pending.origin.start, pending.originLabel)}
+        to={whenWhere(pending.column.date, pending.start, masterLabelOf(pending.column))}
+        onConfirm={confirmMove}
+        onCancel={() => setPending(null)}
+      />
+    )}
+    {chipDates.length === 0 ? (
       hint && (
         <div style={{ minHeight: 46, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{hint}</span>
@@ -579,5 +572,46 @@ export default function DayTimeline({
       </div>
     </div>
     </div>
+  );
+}
+
+// The "are you sure?" for a dropped booking: the browser's own modal dialog,
+// so the page behind is dimmed and inert, focus stays inside, and Escape
+// cancels. Clicking the dimmed backdrop cancels too.
+function MoveDialog({ T, title, what, from, to, onConfirm, onCancel }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (dialog && !dialog.open) dialog.showModal();
+    return () => dialog?.open && dialog.close();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="confirm-dialog"
+      aria-labelledby="move-dialog-title"
+      onCancel={(e) => {
+        e.preventDefault();
+        onCancel();
+      }}
+      onClick={(e) => e.target === ref.current && onCancel()}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <h3 id="move-dialog-title" style={{ fontSize: 19, fontWeight: 500 }}>{title}</h3>
+        <p style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{what}</p>
+        <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 12px', fontSize: 14 }}>
+          <dt style={{ color: 'var(--muted)' }}>{T.moveFrom}</dt>
+          <dd style={{ margin: 0 }}>{from}</dd>
+          <dt style={{ color: 'var(--muted)' }}>{T.moveTo}</dt>
+          <dd style={{ margin: 0, fontWeight: 600 }}>{to}</dd>
+        </dl>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+          {/* Cancel comes first, so it's what the dialog focuses: Enter alone
+              never moves a booking. */}
+          <button className="btn-outline" onClick={onCancel}>{T.cancelBtn}</button>
+          <button className="btn-primary" onClick={onConfirm}>{T.moveBtn}</button>
+        </div>
+      </div>
+    </dialog>
   );
 }

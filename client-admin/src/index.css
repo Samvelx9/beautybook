@@ -308,3 +308,17 @@ button:not(:disabled):active {
   background: var(--bg);
   color: var(--ink);
 }
+
+/* The "are you sure?" pop-up (a native <dialog>, opened with showModal). */
+.confirm-dialog {
+  width: min(420px, calc(100vw - 32px));
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 22px 22px 18px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 18px 50px oklch(27% 0.02 90 / 0.25);
+}
+.confirm-dialog::backdrop {
+  background: oklch(27% 0.02 90 / 0.35);
+}

@@ -5,7 +5,9 @@
 export const PLATFORM_STRINGS = {
   en: {
     viewDay: 'Day',
-    moveQuestion: (who, from, to) => `Move ${who} from ${from} to ${to}?`,
+    moveTitle: 'Are you sure you want to move this booking?',
+    moveFrom: 'From',
+    moveTo: 'To',
     moveBtn: 'Move',
     viewWeek: 'Week',
     timelineDragHint: 'Drag a booking to move it to another time or day.',
@@ -239,7 +241,9 @@ export const PLATFORM_STRINGS = {
 
   ru: {
     viewDay: 'День',
-    moveQuestion: (who, from, to) => `Перенести запись ${who} с ${from} на ${to}?`,
+    moveTitle: 'Вы уверены, что хотите перенести эту запись?',
+    moveFrom: 'Было',
+    moveTo: 'Станет',
     moveBtn: 'Перенести',
     viewWeek: 'Неделя',
     timelineDragHint: 'Перетащите запись, чтобы перенести её на другое время или день.',
@@ -473,7 +477,9 @@ export const PLATFORM_STRINGS = {
 
   hy: {
     viewDay: 'Օր',
-    moveQuestion: (who, from, to) => `Տեղափոխե՞լ ${who}-ի գրանցումը ${from}-ից ${to}։`,
+    moveTitle: 'Համոզվա՞ծ եք, որ ուզում եք տեղափոխել այս գրանցումը',
+    moveFrom: 'Էր',
+    moveTo: 'Կլինի',
     moveBtn: 'Տեղափոխել',
     viewWeek: 'Շաբաթ',
     timelineDragHint: 'Քաշեք գրանցումը՝ այն այլ ժամի կամ օրվա տեղափոխելու համար։',
