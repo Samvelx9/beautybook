@@ -14,7 +14,9 @@ const EMPTY_FORM = {
   sortOrder: '',
 };
 
-export default function ServicesScreen({ T, lang, onAuthError }) {
+export default function ServicesScreen({ T, lang, onAuthError, account }) {
+  const isSalon = account?.organization?.kind === 'salon';
+  const isSalonMaster = isSalon && account.role === 'master';
   const [services, setServices] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -117,7 +119,8 @@ export default function ServicesScreen({ T, lang, onAuthError }) {
       setEditingId(null);
       await load();
     } catch (err) {
-      if (!onAuthError(err)) setError('genericError');
+      if (err instanceof ApiError && err.status === 403) setError('notYoursError');
+      else if (!onAuthError(err)) setError('genericError');
     } finally {
       setSaving(false);
     }
@@ -128,7 +131,8 @@ export default function ServicesScreen({ T, lang, onAuthError }) {
       await api.updateService(s.id, { isActive: !s.is_active });
       await load();
     } catch (err) {
-      if (!onAuthError(err)) setError('genericError');
+      if (err instanceof ApiError && err.status === 403) setError('notYoursError');
+      else if (!onAuthError(err)) setError('genericError');
     }
   }
 
@@ -159,6 +163,7 @@ export default function ServicesScreen({ T, lang, onAuthError }) {
         )}
       </div>
 
+      {isSalonMaster && <p style={{ margin: 0, fontSize: 13.5, color: 'var(--muted)', maxWidth: 620 }}>{T.masterPriceListHint}</p>}
       {error && <p style={{ margin: 0, fontSize: 13, color: 'var(--terracotta)' }}>{T[error]}</p>}
       {services.some((s) => !s.is_active) && (
         <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>{T.hiddenZonesHint}</p>
@@ -240,6 +245,7 @@ export default function ServicesScreen({ T, lang, onAuthError }) {
                     T={T}
                     lang={lang}
                     service={s}
+                    showPerformers={isSalon && !isSalonMaster}
                     isEditing={editingId === s.id}
                     onEdit={() => startEdit(s)}
                     onToggleActive={() => toggleActive(s)}
@@ -351,7 +357,10 @@ function ServiceForm({ T, lang, form, setForm, categories, saving, onSave, onCan
   );
 }
 
-function ServiceRow({ T, lang, service, isEditing, onEdit, onToggleActive, confirmingDelete, onRemove, onConfirmRemove, onCancelRemove }) {
+// Names of masters as the salon's pages show them, for "shared with" lines.
+const masterNames = (masters, lang) => masters.map((m) => localName(m, lang) || m.slug).join(', ');
+
+function ServiceRow({ T, lang, service, showPerformers, isEditing, onEdit, onToggleActive, confirmingDelete, onRemove, onConfirmRemove, onCancelRemove }) {
   return (
     <div
       className="card"
@@ -371,8 +380,20 @@ function ServiceRow({ T, lang, service, isEditing, onEdit, onToggleActive, confi
             ? `${formatPrice(service.price, lang)} ${T.perHourSuffix}`
             : `${service.duration_minutes} ${T.minUnit} · ${formatPrice(service.price, lang)}`}
         </span>
+        {/* The owner sees who performs each service; a salon's master sees who
+            else does, on the ones that are shared and so not theirs to change. */}
+        {showPerformers && (
+          <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+            {service.shared_with?.length > 0 ? T.performedBy(masterNames(service.shared_with, lang)) : T.performedByNobody}
+          </span>
+        )}
+        {service.editable === false && (
+          <span style={{ fontSize: 12.5, color: 'var(--muted)', fontStyle: 'italic', maxWidth: 420 }}>
+            {T.sharedServiceNote(masterNames(service.shared_with ?? [], lang))}
+          </span>
+        )}
       </div>
-      {confirmingDelete ? (
+      {service.editable === false ? null : confirmingDelete ? (
         <ConfirmInline T={T} message={T.confirmDeleteService} onConfirm={onConfirmRemove} onCancel={onCancelRemove} />
       ) : (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

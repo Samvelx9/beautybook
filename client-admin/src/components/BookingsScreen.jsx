@@ -295,6 +295,8 @@ export default function BookingsScreen({ T, lang, onAuthError, salon, calendarMa
     } catch (err) {
       if (err instanceof ApiError && err.code === 'slot_taken') {
         setError('slotTakenError');
+      } else if (err instanceof ApiError && err.code === 'not_performed') {
+        setError('notPerformedError');
       } else if (!onAuthError(err)) {
         setError('genericError');
       }
@@ -852,10 +854,13 @@ function BookingForm({ T, lang, title, form, setForm, services, categories, mast
         >
           <option value="">{T.addZone}</option>
           {categories.map((c) => {
+            // Only what the visit's master performs (a salon's master gets
+            // nothing else from the server; the owner's pick narrows it here).
             // Most-booked zones first (last 90 days, same order guests see);
             // the sort is stable, so ties keep the price-list order.
             const rows = services
               .filter((s) => s.category_id === c.id && !chosenIds.includes(String(s.id)))
+              .filter((s) => !form.masterId || !s.master_ids || s.master_ids.includes(Number(form.masterId)))
               .sort((a, b) => (b.recent_bookings ?? 0) - (a.recent_bookings ?? 0));
             if (rows.length === 0) return null;
             return (

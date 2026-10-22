@@ -198,8 +198,9 @@ export default function App() {
     tabs = ['dashboard', ...(hasCalendars ? ['bookings'] : []), 'masters', 'categories', 'services',
             ...(hasCalendars ? ['availability'] : []), 'profile', 'taxes', 'settings'];
   } else if (isSalon) {
-    // A salon's master: their own calendar; the price list is the owner's.
-    tabs = ['dashboard', 'bookings', 'availability', 'profile', 'settings'];
+    // A salon's master: their own calendar, and the part of the salon's price
+    // list that is theirs alone (the rest is the owner's).
+    tabs = ['dashboard', 'bookings', 'categories', 'services', 'availability', 'profile', 'settings'];
   } else {
     tabs = ['dashboard', 'bookings', 'categories', 'services', 'availability', 'profile', 'taxes', 'settings'];
   }

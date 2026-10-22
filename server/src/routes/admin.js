@@ -24,6 +24,15 @@ import { EMAIL_PATTERN, readCurrency, readLanguages } from './auth.js';
 import { changeOwnPassword } from '../services/accounts.js';
 import { sendCsv } from '../lib/csv.js';
 import { RECENT_BOOKINGS_SQL } from '../lib/popularity.js';
+import {
+  OWN_CATEGORY_SQL,
+  OWN_SERVICE_SQL,
+  VISIBLE_CATEGORY_SQL,
+  isSalonMaster,
+  ownsCategory,
+  ownsService,
+  seesCategory,
+} from '../services/priceListAccess.js';
 import { calendarRouter } from './calendar.js';
 
 // The admin panel of one login: an organization's owner, or one of a salon's
@@ -322,15 +331,38 @@ function readNames(body) {
 }
 const hasSomeName = (n) => Boolean(n.name_en || n.name_ru || n.name_hy);
 
+// Each treatment says whether this login may change it (`editable`). A salon's
+// master sees only the treatments that hold a service they perform, or that
+// they created — see services/priceListAccess.js.
 adminRouter.get('/categories', asyncHandler(async (req, res) => {
+  if (isSalonMaster(req)) {
+    const { rows } = await pool.query(
+      `SELECT ${CATEGORY_COLUMNS}, ${OWN_CATEGORY_SQL('c', '$2')} AS editable
+       FROM service_categories c
+       WHERE c.organization_id = $1 AND ${VISIBLE_CATEGORY_SQL('c', '$2')}
+       ORDER BY c.sort_order, c.id`,
+      [req.organization.id, req.master.id]
+    );
+    return res.json(rows);
+  }
   const { rows } = await pool.query(
-    `SELECT ${CATEGORY_COLUMNS} FROM service_categories WHERE organization_id = $1 ORDER BY sort_order, id`,
+    `SELECT ${CATEGORY_COLUMNS}, true AS editable
+     FROM service_categories WHERE organization_id = $1 ORDER BY sort_order, id`,
     [req.organization.id]
   );
   res.json(rows);
 }));
 
-adminRouter.post('/categories', requireOwner, asyncHandler(async (req, res) => {
+// A salon's master may change a treatment only when it's theirs alone.
+const mayChangeCategory = asyncHandler(async (req, res, next) => {
+  if (!isSalonMaster(req)) return next();
+  const id = idParam(req);
+  if (id === null) return res.status(400).json({ error: 'invalid_category_id' });
+  if (!(await ownsCategory(req.master.id, id))) return res.status(403).json({ error: 'not_your_category' });
+  next();
+});
+
+adminRouter.post('/categories', asyncHandler(async (req, res) => {
   const names = readNames(req.body);
   if (!hasSomeName(names)) return res.status(400).json({ error: 'missing_fields' });
   const slug = slugFor(req.body?.slug, [names.name_en, names.name_ru, names.name_hy]);
@@ -340,9 +372,9 @@ adminRouter.post('/categories', requireOwner, asyncHandler(async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO service_categories
          (organization_id, slug, name_en, name_ru, name_hy, description_en, description_ru,
-          description_hy, sort_order, is_hourly)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING ${CATEGORY_COLUMNS}`,
+          description_hy, sort_order, is_hourly, created_by_master_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING ${CATEGORY_COLUMNS}, true AS editable`,
       [
         req.organization.id,
         slug,
@@ -354,6 +386,7 @@ adminRouter.post('/categories', requireOwner, asyncHandler(async (req, res) => {
         cleanString(req.body?.descriptionHy, 500),
         Number.isInteger(sortOrder) ? sortOrder : 0,
         Boolean(req.body?.isHourly),
+        isSalonMaster(req) ? req.master.id : null,
       ]
     );
     res.status(201).json(rows[0]);
@@ -363,7 +396,7 @@ adminRouter.post('/categories', requireOwner, asyncHandler(async (req, res) => {
   }
 }));
 
-adminRouter.patch('/categories/:id', requireOwner, asyncHandler(async (req, res) => {
+adminRouter.patch('/categories/:id', mayChangeCategory, asyncHandler(async (req, res) => {
   const id = idParam(req);
   if (id === null) return res.status(400).json({ error: 'invalid_category_id' });
 
@@ -405,7 +438,7 @@ adminRouter.patch('/categories/:id', requireOwner, asyncHandler(async (req, res)
     const { rows } = await pool.query(
       `UPDATE service_categories SET ${fields.join(', ')}
        WHERE id = $${values.length - 1} AND organization_id = $${values.length}
-       RETURNING ${CATEGORY_COLUMNS}`,
+       RETURNING ${CATEGORY_COLUMNS}, true AS editable`,
       values
     );
     if (!rows[0]) return res.status(404).json({ error: 'category_not_found' });
@@ -417,7 +450,7 @@ adminRouter.patch('/categories/:id', requireOwner, asyncHandler(async (req, res)
   }
 }));
 
-adminRouter.delete('/categories/:id', requireOwner, asyncHandler(async (req, res) => {
+adminRouter.delete('/categories/:id', mayChangeCategory, asyncHandler(async (req, res) => {
   const id = idParam(req);
   if (id === null) return res.status(400).json({ error: 'invalid_category_id' });
 
@@ -443,21 +476,57 @@ adminRouter.delete('/categories/:id', requireOwner, asyncHandler(async (req, res
 // Zones (services)
 // ---------------------------------------------------------------------------
 
+// Each service with `master_ids` (the working masters who perform it, which
+// the owner's booking form narrows by), `editable` (may this login change it)
+// and `shared_with` (the other masters who perform it, by name, for a salon's
+// master to see why a service isn't theirs to change). A salon's master gets
+// only the services they perform.
 adminRouter.get('/services', asyncHandler(async (req, res) => {
+  const salonMaster = isSalonMaster(req);
+  const me = salonMaster ? req.master.id : null;
   const { rows } = await pool.query(
     `SELECT ${SERVICE_COLUMNS_WITH_MODE},
-            COALESCE(pop.recent_bookings, 0) AS recent_bookings
+            COALESCE(pop.recent_bookings, 0) AS recent_bookings,
+            ARRAY(SELECT ms.master_id FROM master_services ms
+                   JOIN masters m ON m.id = ms.master_id AND m.deactivated_at IS NULL
+                   WHERE ms.service_id = s.id ORDER BY ms.master_id) AS master_ids,
+            ${salonMaster ? OWN_SERVICE_SQL('s', '$2') : 'true'} AS editable,
+            COALESCE((SELECT json_agg(json_build_object('slug', m.slug, 'name_en', p.owner_name_en,
+                                      'name_ru', p.owner_name_ru, 'name_hy', p.owner_name_hy) ORDER BY m.id)
+                        FROM master_services ms
+                        JOIN masters m ON m.id = ms.master_id AND m.deactivated_at IS NULL
+                        LEFT JOIN salon_profile p ON p.master_id = m.id
+                       WHERE ms.service_id = s.id AND m.id IS DISTINCT FROM $2::int), '[]') AS shared_with
      FROM services s
      JOIN service_categories c ON c.id = s.category_id
      LEFT JOIN (${RECENT_BOOKINGS_SQL}) pop ON pop.service_id = s.id
      WHERE s.organization_id = $1
+       ${salonMaster ? 'AND EXISTS (SELECT 1 FROM master_services mine WHERE mine.service_id = s.id AND mine.master_id = $2)' : ''}
      ORDER BY s.sort_order, s.id`,
-    [req.organization.id]
+    [req.organization.id, me]
   );
   res.json(rows);
 }));
 
-adminRouter.post('/services', requireOwner, asyncHandler(async (req, res) => {
+// A salon's master may change a service only when it's theirs alone, and may
+// put one only into a treatment they can see.
+const mayChangeService = asyncHandler(async (req, res, next) => {
+  if (!isSalonMaster(req)) return next();
+  const id = idParam(req);
+  if (id === null) return res.status(400).json({ error: 'invalid_service_id' });
+  if (!(await ownsService(req.master.id, id))) return res.status(403).json({ error: 'not_your_service' });
+  next();
+});
+const mayUseCategory = asyncHandler(async (req, res, next) => {
+  if (!isSalonMaster(req) || req.body?.categoryId === undefined) return next();
+  const categoryId = Number(req.body.categoryId);
+  if (!Number.isInteger(categoryId) || !(await seesCategory(req.master.id, categoryId))) {
+    return res.status(400).json({ error: 'invalid_category' });
+  }
+  next();
+});
+
+adminRouter.post('/services', mayUseCategory, asyncHandler(async (req, res) => {
   const names = readNames(req.body);
   const duration_minutes = Number(req.body?.durationMinutes);
   const price = Number(req.body?.price);
@@ -495,7 +564,16 @@ adminRouter.post('/services', requireOwner, asyncHandler(async (req, res) => {
         req.body?.isActive === undefined ? true : Boolean(req.body.isActive),
       ]
     );
-    await offerByAllMasters(client, req.organization.id, rows[0].id);
+    // The owner's new service is everyone's to perform until they say
+    // otherwise; a salon's master adds one for themselves alone.
+    if (isSalonMaster(req)) {
+      await client.query(
+        'INSERT INTO master_services (organization_id, master_id, service_id) VALUES ($1, $2, $3)',
+        [req.organization.id, req.master.id, rows[0].id]
+      );
+    } else {
+      await offerByAllMasters(client, req.organization.id, rows[0].id);
+    }
     await client.query('COMMIT');
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -510,7 +588,7 @@ adminRouter.post('/services', requireOwner, asyncHandler(async (req, res) => {
   }
 }));
 
-adminRouter.patch('/services/:id', requireOwner, asyncHandler(async (req, res) => {
+adminRouter.patch('/services/:id', mayChangeService, mayUseCategory, asyncHandler(async (req, res) => {
   const id = idParam(req);
   if (id === null) return res.status(400).json({ error: 'invalid_service_id' });
 
@@ -561,7 +639,7 @@ adminRouter.patch('/services/:id', requireOwner, asyncHandler(async (req, res) =
   res.json(rows[0]);
 }));
 
-adminRouter.delete('/services/:id', requireOwner, asyncHandler(async (req, res) => {
+adminRouter.delete('/services/:id', mayChangeService, asyncHandler(async (req, res) => {
   const id = idParam(req);
   if (id === null) return res.status(400).json({ error: 'invalid_service_id' });
 

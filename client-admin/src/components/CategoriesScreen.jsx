@@ -16,7 +16,8 @@ const EMPTY_FORM = {
 
 // The treatments a guest picks between on the landing page (manicure, waxing,
 // massage…). The zones and prices under each one live in Services.
-export default function CategoriesScreen({ T, lang, onAuthError, setTab }) {
+export default function CategoriesScreen({ T, lang, onAuthError, setTab, account }) {
+  const isSalonMaster = account?.organization?.kind === 'salon' && account.role === 'master';
   const [categories, setCategories] = useState([]);
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -92,7 +93,8 @@ export default function CategoriesScreen({ T, lang, onAuthError, setTab }) {
       setEditingId(null);
       await load();
     } catch (err) {
-      if (!onAuthError(err)) setError('genericError');
+      if (err instanceof ApiError && err.status === 403) setError('notYoursError');
+      else if (!onAuthError(err)) setError('genericError');
     } finally {
       setSaving(false);
     }
@@ -103,7 +105,8 @@ export default function CategoriesScreen({ T, lang, onAuthError, setTab }) {
       await api.updateCategory(category.id, { isActive: !category.is_active });
       await load();
     } catch (err) {
-      if (!onAuthError(err)) setError('genericError');
+      if (err instanceof ApiError && err.status === 403) setError('notYoursError');
+      else if (!onAuthError(err)) setError('genericError');
     }
   }
 
@@ -132,6 +135,7 @@ export default function CategoriesScreen({ T, lang, onAuthError, setTab }) {
           <h2 style={{ fontSize: 22, fontWeight: 500 }}>{T.categoriesTitle}</h2>
           <p style={{ margin: '6px 0 0', fontSize: 13.5, color: 'var(--muted)', maxWidth: 620 }}>
             {T.categoriesCaption}
+            {isSalonMaster && <> {T.masterPriceListHint}</>}
           </p>
         </div>
         {editingId === null && (
@@ -143,7 +147,10 @@ export default function CategoriesScreen({ T, lang, onAuthError, setTab }) {
 
       {error && <p style={{ margin: 0, fontSize: 13, color: 'var(--terracotta)' }}>{T[error]}</p>}
 
-      {editingId === null && <TemplatePicker T={T} lang={lang} onAuthError={onAuthError} onAdded={load} setTab={setTab} />}
+      {/* Starter lists add to the whole salon's price list: the owner's call. */}
+      {editingId === null && !isSalonMaster && (
+        <TemplatePicker T={T} lang={lang} onAuthError={onAuthError} onAdded={load} setTab={setTab} />
+      )}
 
       {/* Same rule as Services: editing opens the form under the treatment it
           belongs to, and only a new treatment sits at the top. */}
@@ -186,8 +193,11 @@ export default function CategoriesScreen({ T, lang, onAuthError, setTab }) {
                     <span style={{ color: 'var(--sage)', fontWeight: 600 }}> · {T.hourlyTag}</span>
                   )}
                 </span>
+                {category.editable === false && (
+                  <span style={{ fontSize: 12.5, color: 'var(--muted)', fontStyle: 'italic' }}>{T.sharedCategoryNote}</span>
+                )}
               </div>
-              {confirmingDeleteId === category.id ? (
+              {category.editable === false ? null : confirmingDeleteId === category.id ? (
                 <ConfirmInline
                   T={T}
                   message={T.confirmDeleteCategory}

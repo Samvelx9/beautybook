@@ -4,6 +4,13 @@
 // string is replaced with the platform's domain where it's shown.
 export const PLATFORM_STRINGS = {
   en: {
+    masterPriceListHint: "Services you add here are yours alone. Ones you share with other masters are the salon administrator's to change.",
+    sharedServiceNote: (names) => `Also performed by ${names} — the salon administrator changes it.`,
+    sharedCategoryNote: "Holds other masters' services too — the salon administrator changes it.",
+    performedBy: (names) => `Performed by ${names}`,
+    performedByNobody: 'No master performs it yet',
+    notYoursError: 'That is shared with other masters, so only the salon administrator can change it.',
+    notPerformedError: "The visit's master doesn't perform one of these services. Pick from their own list.",
     windowLabel: 'and',
     windowChoice: (w) => `up to ${w} ahead`,
     noticeSection: 'When clients can book',
@@ -212,6 +219,13 @@ export const PLATFORM_STRINGS = {
   },
 
   ru: {
+    masterPriceListHint: 'Услуги, которые вы добавляете здесь, — только ваши. Общие с другими мастерами меняет администратор салона.',
+    sharedServiceNote: (names) => `Эту услугу выполняет и ${names} — её меняет администратор салона.`,
+    sharedCategoryNote: 'Здесь есть услуги других мастеров — её меняет администратор салона.',
+    performedBy: (names) => `Выполняет: ${names}`,
+    performedByNobody: 'Пока её не выполняет ни один мастер',
+    notYoursError: 'Это общее с другими мастерами, поэтому изменить может только администратор салона.',
+    notPerformedError: 'Мастер этой записи не выполняет одну из выбранных услуг. Выберите из его списка.',
     windowLabel: 'и',
     windowChoice: (w) => `не более чем на ${w} вперёд`,
     noticeSection: 'Когда клиенты могут записываться',
@@ -420,6 +434,13 @@ export const PLATFORM_STRINGS = {
   },
 
   hy: {
+    masterPriceListHint: 'Այստեղ ավելացրած ծառայությունները միայն ձերն են։ Այլ վարպետների հետ ընդհանուրները փոխում է սրահի ադմինիստրատորը։',
+    sharedServiceNote: (names) => `Այս ծառայությունը մատուցում է նաև ${names}․ այն փոխում է սրահի ադմինիստրատորը։`,
+    sharedCategoryNote: 'Այստեղ կան նաև այլ վարպետների ծառայություններ․ այն փոխում է սրահի ադմինիստրատորը։',
+    performedBy: (names) => `Մատուցում է՝ ${names}`,
+    performedByNobody: 'Դեռ ոչ մի վարպետ չի մատուցում',
+    notYoursError: 'Սա ընդհանուր է այլ վարպետների հետ, ուստի կարող է փոխել միայն սրահի ադմինիստրատորը։',
+    notPerformedError: 'Այս գրանցման վարպետը չի մատուցում ընտրված ծառայություններից մեկը։ Ընտրեք նրա ցանկից։',
     windowLabel: 'և',
     windowChoice: (w) => `ոչ ավելի, քան ${w} առաջ`,
     noticeSection: 'Երբ կարող են գրանցվել հաճախորդները',

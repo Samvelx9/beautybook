@@ -946,7 +946,9 @@ test("a salon's master works their own calendar; the salon's business is the own
   assert.equal(mine[0].customer_name, 'Ani');
 
   assert.equal((await call('GET', '/admin/services', { token: nina })).status, 200);
-  assert.equal((await call('POST', '/admin/categories', { token: nina, body: { nameRu: 'X' } })).body.error, 'not_owner');
+  // Her own part of the price list is hers (see the test further down); a
+  // whole starter list for the salon is not.
+  assert.equal((await call('POST', '/admin/templates/nails', { token: nina })).body.error, 'not_owner');
   assert.equal((await call('GET', '/admin/expenses', { token: nina })).body.error, 'not_owner');
   assert.equal((await call('GET', '/salon', { token: nina })).body.error, 'not_owner');
   assert.equal(
@@ -1617,4 +1619,76 @@ test('the most-booked zones come first for guests; the price list keeps its own 
   assert.equal(cancelled.status, 200, JSON.stringify(cancelled.body));
   const after = await call('GET', '/services', { slug: 'poppy' });
   assert.deepEqual(after.body.map((s) => s.id), [first, second]);
+});
+
+test("a salon's master changes only what is theirs alone, and books only what they perform", async () => {
+  const headers = { 'X-Real-IP': '198.51.100.31' };
+  const signedUp = await call('POST', '/auth/signup', {
+    headers,
+    body: {
+      accountType: 'salon', salonName: 'Lotus', salonSlug: 'lotus-salon', email: 'lotus@salon.example',
+      password: 'correct horse battery', languages: ['ru', 'en'], defaultLang: 'ru', timezone: 'Asia/Yerevan',
+    },
+  });
+  assert.equal(signedUp.status, 201, JSON.stringify(signedUp.body));
+  const owner = signedUp.body.token;
+
+  const addMaster = async (slug) => {
+    const res = await call('POST', '/salon/masters', { token: owner, body: { email: `${slug}@salon.example`, slug, displayName: slug } });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    return { id: res.body.master.id, token: await login(res.body.email, res.body.password) };
+  };
+  const a = await addMaster('lotus-a');
+  const b = await addMaster('lotus-b');
+
+  // The owner's hair list: a cut both masters do, a colour only A does.
+  const hair = await call('POST', '/admin/categories', { token: owner, body: { nameRu: 'Волосы' } });
+  const service = async (token, categoryId, nameRu) => {
+    const res = await call('POST', '/admin/services', { token, body: { nameRu, categoryId, durationMinutes: 30, price: 5000 } });
+    return res;
+  };
+  const cut = (await service(owner, hair.body.id, 'Стрижка')).body.id;
+  const colour = (await service(owner, hair.body.id, 'Окрашивание')).body.id;
+  assert.equal((await call('PATCH', `/salon/masters/${b.id}`, { token: owner, body: { serviceIds: [cut] } })).status, 200);
+
+  // A sees both, may change only the colour; B sees only the cut.
+  const listA = (await call('GET', '/admin/services', { token: a.token })).body;
+  assert.deepEqual(listA.map((s) => [s.id, s.editable]), [[cut, false], [colour, true]]);
+  assert.deepEqual(listA[0].shared_with.map((m) => m.slug), ['lotus-b']);
+  assert.deepEqual((await call('GET', '/admin/services', { token: b.token })).body.map((s) => s.id), [cut]);
+  assert.equal((await call('PATCH', `/admin/services/${colour}`, { token: a.token, body: { price: 7000 } })).status, 200);
+  assert.equal((await call('PATCH', `/admin/services/${cut}`, { token: a.token, body: { price: 1 } })).status, 403);
+  assert.equal((await call('DELETE', `/admin/services/${cut}`, { token: a.token })).status, 403);
+  // The hair treatment holds a shared service, so it's the owner's.
+  assert.equal((await call('PATCH', `/admin/categories/${hair.body.id}`, { token: a.token, body: { nameRu: 'X' } })).status, 403);
+  assert.equal((await call('POST', '/admin/templates/nails', { token: a.token })).status, 403);
+
+  // A's own treatment, empty and then with A's own service in it.
+  const nails = await call('POST', '/admin/categories', { token: a.token, body: { nameRu: 'Ногти' } });
+  assert.equal(nails.status, 201);
+  assert.equal(nails.body.editable, true);
+  const manicure = await service(a.token, nails.body.id, 'Маникюр');
+  assert.equal(manicure.status, 201);
+  const ownerList = (await call('GET', '/admin/services', { token: owner })).body;
+  assert.deepEqual(ownerList.find((s) => s.id === manicure.body.id).master_ids, [a.id]);
+  assert.equal((await call('PATCH', `/admin/categories/${nails.body.id}`, { token: a.token, body: { nameRu: 'Ногтевой сервис' } })).status, 200);
+  // B neither sees A's treatment nor may use or change it.
+  assert.ok(!(await call('GET', '/admin/categories', { token: b.token })).body.some((c) => c.id === nails.body.id));
+  assert.equal((await service(b.token, nails.body.id, 'Педикюр')).status, 400);
+  assert.equal((await call('PATCH', `/admin/categories/${nails.body.id}`, { token: b.token, body: { nameRu: 'Y' } })).status, 403);
+
+  // Bookings: B can't book A's colour; the owner can't either, for B.
+  const booking = (serviceId, extra = {}) => ({
+    date, time: '12:00', customerName: 'Walk-in', customerPhone: '+37499000111', items: [{ serviceId }], ...extra,
+  });
+  const refused = await call('POST', '/admin/bookings', { token: b.token, body: booking(colour) });
+  assert.deepEqual([refused.status, refused.body.error], [400, 'not_performed']);
+  assert.equal((await call('POST', '/admin/bookings', { token: b.token, body: booking(cut) })).status, 201);
+  assert.equal((await call('POST', `/salon/masters/${b.id}/bookings`, { token: owner, body: booking(colour, { time: '14:00' }) })).status, 400);
+
+  // Nor hand A's colour visit to B as it is.
+  const aVisit = await call('POST', `/salon/masters/${a.id}/bookings`, { token: owner, body: booking(colour, { time: '15:00' }) });
+  assert.equal(aVisit.status, 201, JSON.stringify(aVisit.body));
+  const handOver = await call('PATCH', `/salon/masters/${a.id}/bookings/${aVisit.body.id}`, { token: owner, body: { masterId: b.id } });
+  assert.deepEqual([handOver.status, handOver.body.error], [400, 'not_performed']);
 });

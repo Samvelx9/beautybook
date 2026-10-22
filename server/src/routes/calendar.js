@@ -285,9 +285,10 @@ calendarRouter.post('/bookings', asyncHandler(async (req, res) => {
   }
 
   // A master may book a zone they've since hidden — the price list moving on
-  // shouldn't stop them recording what they actually did.
+  // shouldn't stop them recording what they actually did — but only one they
+  // perform: on a salon, another master's services aren't theirs to book.
   const rawItems = req.body?.items ?? [{ serviceId: req.body?.serviceId, durationMinutes: req.body?.durationMinutes }];
-  const resolved = await resolveItems(master, rawItems, { requireActive: false });
+  const resolved = await resolveItems(master, rawItems, { requireActive: false, requirePerformed: true });
   if (resolved.error) {
     const httpStatus = resolved.error === 'service_not_found' ? 404 : 400;
     return res.status(httpStatus).json({ error: resolved.error });
@@ -372,12 +373,27 @@ calendarRouter.patch('/bookings/:id', asyncHandler(async (req, res) => {
   // request touched.
   let resolved = null;
   if (req.body?.items !== undefined) {
-    resolved = await resolveItems(master, req.body.items, { requireActive: false });
+    // Checked against whoever the visit ends up with; what it already has stays
+    // allowed unless it changes hands.
+    resolved = await resolveItems(target, req.body.items, {
+      requireActive: false,
+      requirePerformed: true,
+      keepIds: target === master ? existing.items.map((i) => i.service_id) : [],
+    });
     if (resolved.error) {
       const httpStatus = resolved.error === 'service_not_found' ? 404 : 400;
       return res.status(httpStatus).json({ error: resolved.error });
     }
     set('price_at_booking', resolved.totalPrice);
+  } else if (target !== master) {
+    // Handed over as it is: the new master has to perform what it holds.
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::int AS missing FROM unnest($1::int[]) AS held(service_id)
+       WHERE NOT EXISTS (SELECT 1 FROM master_services ms
+                          WHERE ms.master_id = $2 AND ms.service_id = held.service_id)`,
+      [existing.items.map((i) => i.service_id), target.id]
+    );
+    if (rows[0].missing > 0) return res.status(400).json({ error: 'not_performed' });
   }
 
   const movingTime = req.body?.date !== undefined || req.body?.time !== undefined;

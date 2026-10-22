@@ -81,7 +81,12 @@ export async function getBookingForGuest({ id, token }) {
 // `requireActive` is the difference between a guest booking (only zones on
 // sale, and only ones this master performs) and one entered in the admin panel
 // (anything in the price list, including a zone since hidden).
-export async function resolveItems(master, rawItems, { requireActive = true } = {}) {
+// `requireActive` (the guest flow) takes only services on sale that the master
+// performs. `requirePerformed` (a booking entered by hand) takes hidden ones
+// too, but still only the master's own — except `keepIds`, the services a
+// booking being edited already has, which stay allowed after the master stops
+// offering them.
+export async function resolveItems(master, rawItems, { requireActive = true, requirePerformed = false, keepIds = [] } = {}) {
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
     return { error: 'missing_items' };
   }
@@ -116,6 +121,9 @@ export async function resolveItems(master, rawItems, { requireActive = true } = 
     const service = byId.get(Number(raw.serviceId));
     if (!service || (requireActive && !(service.is_active && service.performed))) {
       return { error: 'service_not_found' };
+    }
+    if (requirePerformed && !service.performed && !keepIds.includes(service.id)) {
+      return { error: 'not_performed' };
     }
 
     // Only an hourly zone takes a length from the client; a fixed one is as
