@@ -65,9 +65,19 @@ function closedStretches(hours, blocks, from, to) {
 
 const HATCH = 'repeating-linear-gradient(135deg, var(--line) 0 2px, transparent 2px 8px)';
 
+// With `colorBy="status"` (one calendar's week) a block says how the visit
+// went rather than whose it is: confirmed yellow, completed green, cancelled
+// or a no-show red. The shades are CSS variables in index.css.
+const STATUS_TONE = { confirmed: 'confirmed', completed: 'done', cancelled: 'off', no_show: 'off' };
+const statusColor = (status) => `var(--status-${STATUS_TONE[status]})`;
+const statusTint = (status) => `var(--status-${STATUS_TONE[status]}-light)`;
+const overlap = (a, b) => a.start < b.end && b.start < a.end;
+
 export default function DayTimeline({
   T, lang, columns, bookings, onPickBooking, onPickSlot, onPickDate, onMoveBooking, canTake, onChangeDay, hint,
+  colorBy = 'master',
 }) {
+  const byStatus = colorBy === 'status';
   const spans = new Map(bookings.map((b) => [b.id, span(b)]));
   const columnEls = useRef(new Map());
   const scroller = useRef(null);
@@ -187,7 +197,7 @@ export default function DayTimeline({
     const start = Math.min(Math.max(Math.round(raw / SNAP_MIN) * SNAP_MIN, from), to - Math.min(drag.length, to - from));
     const end = start + drag.length;
     const clash = bookings.some((b) => {
-      if (b.id === drag.booking.id || !inColumn(column.c)(b)) return false;
+      if (b.id === drag.booking.id || b.status === 'cancelled' || !inColumn(column.c)(b)) return false;
       const o = spans.get(b.id);
       return o.start < end && start < o.end;
     });
@@ -243,8 +253,18 @@ export default function DayTimeline({
         the pointer: the hint, or while dragging, the days to hold it over. */}
     {chipDates.length === 0 ? (
       hint && (
-        <div style={{ minHeight: 46, display: 'flex', alignItems: 'center' }}>
+        <div style={{ minHeight: 46, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{hint}</span>
+          {byStatus && (
+            <span style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12.5 }}>
+              {[['confirmed', T.statusConfirmed], ['completed', T.statusCompleted], ['cancelled', `${T.statusCancelled} / ${T.statusNoShow}`]].map(([status, label]) => (
+                <span key={status} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: 3, background: statusTint(status), border: `2px solid ${statusColor(status)}` }} />
+                  {label}
+                </span>
+              ))}
+            </span>
+          )}
         </div>
       )
     ) : (
@@ -389,6 +409,11 @@ export default function DayTimeline({
               ))}
               {own.map((b) => {
                 const s = spans.get(b.id);
+                // A cancelled visit no longer holds its time, so another can sit
+                // on it: the two then share the width, the cancelled one right.
+                const cancelled = b.status === 'cancelled';
+                const sharing = own.some((o) => o.id !== b.id && (o.status === 'cancelled') !== cancelled && overlap(s, spans.get(o.id)));
+                const tone = byStatus ? { line: statusColor(b.status), fill: statusTint(b.status) } : { line: masterColor(c.color), fill: masterTint(c.color) };
                 const zones = (b.items ?? []).map((z) => localName(z, lang)).join(' · ');
                 const label = `${toTime(s.start)}–${toTime(s.end)} · ${b.customer_name} · ${zones}`;
                 return (
@@ -408,10 +433,10 @@ export default function DayTimeline({
                     style={{
                       // Touch: the press drags the block rather than the page.
                       touchAction: onMoveBooking && b.status === 'confirmed' ? 'none' : 'auto',
-                      zIndex: 1,
+                      zIndex: cancelled ? 0 : 1,
                       position: 'absolute',
-                      left: 4,
-                      right: 4,
+                      left: sharing && cancelled ? '52%' : 4,
+                      right: sharing && !cancelled ? '50%' : 4,
                       top: (s.start - from) * PX_PER_MIN + 1,
                       height: Math.max((s.end - s.start) * PX_PER_MIN - 2, 20),
                       display: 'flex',
@@ -422,11 +447,11 @@ export default function DayTimeline({
                       overflow: 'hidden',
                       textAlign: 'left',
                       borderRadius: 7,
-                      background: masterTint(c.color),
-                      borderLeft: `4px solid ${masterColor(c.color)}`,
+                      background: tone.fill,
+                      borderLeft: `4px solid ${tone.line}`,
                       // A no-show keeps its place, faded; it still held the time.
                       // The one being dragged stays faint where it was.
-                      opacity: dragging?.booking.id === b.id ? 0.3 : b.status === 'no_show' ? 0.55 : 1,
+                      opacity: dragging?.booking.id === b.id ? 0.3 : !byStatus && b.status === 'no_show' ? 0.55 : 1,
                       cursor: onMoveBooking && b.status === 'confirmed' ? 'grab' : 'pointer',
                       color: 'var(--ink)',
                     }}
@@ -434,7 +459,7 @@ export default function DayTimeline({
                     {/* A short visit gets one line — its start and the client —
                         rather than a time range cut off after the first. */}
                     {(s.end - s.start) * PX_PER_MIN < 34 ? (
-                      <span style={{ fontSize: 11.5, whiteSpace: 'nowrap', lineHeight: 1.2 }}>
+                      <span style={{ fontSize: 11.5, whiteSpace: 'nowrap', lineHeight: 1.2, textDecoration: cancelled ? 'line-through' : 'none' }}>
                         <b style={{ fontVariantNumeric: 'tabular-nums' }}>{toTime(s.start)}</b> · {b.customer_name}
                       </span>
                     ) : (
@@ -443,8 +468,9 @@ export default function DayTimeline({
                           {toTime(s.start)}–{toTime(s.end)}
                           {b.status === 'completed' && ' ✓'}
                           {b.status === 'no_show' && ` · ${T.statusNoShow}`}
+                          {cancelled && ` · ${T.statusCancelled}`}
                         </span>
-                        <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>{b.customer_name}</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', textDecoration: cancelled ? 'line-through' : 'none' }}>{b.customer_name}</span>
                         <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{zones}</span>
                       </>
                     )}

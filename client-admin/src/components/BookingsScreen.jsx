@@ -51,11 +51,12 @@ const STATUS_KEY = {
   cancelled: 'statusCancelled',
   no_show: 'statusNoShow',
 };
+// The same colours the week view gives each status (index.css).
 const STATUS_COLOR = {
-  confirmed: 'var(--sage)',
-  completed: 'var(--ink)',
-  cancelled: 'var(--terracotta)',
-  no_show: 'var(--muted)',
+  confirmed: 'var(--status-confirmed)',
+  completed: 'var(--status-done)',
+  cancelled: 'var(--status-off)',
+  no_show: 'var(--status-off)',
 };
 
 const EMPTY_BOOKING_FORM = {
@@ -640,7 +641,11 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
                   T={T}
                   lang={lang}
                   columns={dayColumns.map(withAvailability)}
-                  bookings={shown.filter((b) => b.status !== 'cancelled' && dayColumns.some((c) => c.date === dateKeyOf(b)))}
+                  // One calendar's week shows every booking coloured by status;
+                  // across masters, colour is the master's, and cancelled ones
+                  // stay in the list.
+                  bookings={shown.filter((b) => (weekMode || b.status !== 'cancelled') && dayColumns.some((c) => c.date === dateKeyOf(b)))}
+                  colorBy={weekMode ? 'status' : 'master'}
                   onPickBooking={openEditBooking}
                   onPickSlot={
                     editingBookingId === null && services.length > 0
