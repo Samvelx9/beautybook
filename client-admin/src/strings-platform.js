@@ -5,13 +5,13 @@
 export const PLATFORM_STRINGS = {
   en: {
     viewDay: 'Day',
+    viewWeek: 'Week',
     timelineDragHint: 'Drag a booking to move it to another time or day.',
     timelineDragHintSalon: 'Drag a booking to another time, day or master — only masters who do its services stay lit while you drag.',
     dropNotHere: 'Overlaps another booking',
     dropNotTheirs: "Doesn't do these services",
     dragToDay: 'Hold over a day to move it there:',
     viewLabel: 'View',
-    dayOwnColumn: 'Your bookings',
     dayNoMasters: 'Every master is hidden — pick at least one above.',
     timelineAddHint: 'Click free time to add a booking here',
     legendShow: 'Show these bookings',
@@ -237,13 +237,13 @@ export const PLATFORM_STRINGS = {
 
   ru: {
     viewDay: 'День',
+    viewWeek: 'Неделя',
     timelineDragHint: 'Перетащите запись, чтобы перенести её на другое время или день.',
     timelineDragHintSalon: 'Перетащите запись на другое время, день или к другому мастеру — пока вы тянете, активны только мастера, выполняющие её услуги.',
     dropNotHere: 'Пересекается с другой записью',
     dropNotTheirs: 'Не выполняет эти услуги',
     dragToDay: 'Задержите над днём, чтобы перенести туда:',
     viewLabel: 'Вид',
-    dayOwnColumn: 'Ваши записи',
     dayNoMasters: 'Все мастера скрыты — выберите хотя бы одного выше.',
     timelineAddHint: 'Нажмите на свободное время, чтобы добавить запись',
     legendShow: 'Показать эти записи',
@@ -469,13 +469,13 @@ export const PLATFORM_STRINGS = {
 
   hy: {
     viewDay: 'Օր',
+    viewWeek: 'Շաբաթ',
     timelineDragHint: 'Քաշեք գրանցումը՝ այն այլ ժամի կամ օրվա տեղափոխելու համար։',
     timelineDragHintSalon: 'Քաշեք գրանցումը այլ ժամի, օրվա կամ վարպետի մոտ․ քաշելիս ակտիվ են միայն նրա ծառայությունները մատուցող վարպետները։',
     dropNotHere: 'Համընկնում է այլ գրանցման հետ',
     dropNotTheirs: 'Չի մատուցում այս ծառայությունները',
     dragToDay: 'Պահեք օրվա վրա՝ այնտեղ տեղափոխելու համար․',
     viewLabel: 'Տեսք',
-    dayOwnColumn: 'Ձեր գրանցումները',
     dayNoMasters: 'Բոլոր վարպետները թաքցված են․ ընտրեք գոնե մեկին վերևում։',
     timelineAddHint: 'Սեղմեք ազատ ժամի վրա՝ գրանցում ավելացնելու համար',
     legendShow: 'Ցույց տալ այս գրանցումները',

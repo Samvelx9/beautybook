@@ -30,6 +30,14 @@ function daysInMonth(year, month) {
 // maps a column index onto them.
 const MONDAY_FIRST = [1, 2, 3, 4, 5, 6, 0];
 
+// The Monday of the week a date falls in — a single calendar's day view is
+// that week, a column per day.
+function weekStart(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return addDays(dateStr, -((weekday + 6) % 7));
+}
+
 // A booking's Yerevan calendar day as 'YYYY-MM-DD' — the same key the day
 // cells and the day list are grouped by.
 function dateKeyOf(booking) {
@@ -115,7 +123,10 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
     });
   // The calendar position starts from the URL, so a reload reopens the same
   // month, day and filter — see route.js.
-  const [view, setView] = useState(() => routeParam('view', (v) => v === 'year' || v === 'day', 'month')); // 'day' | 'month' | 'year'
+  // The day view first: what's on today. 'day' is a column per master with every
+  // master on screen, and a single calendar's week, a column per day.
+  const [view, setView] = useState(() => routeParam('view', (v) => v === 'year' || v === 'month', 'day')); // 'day' | 'month' | 'year'
+  const weekMode = !allMasters;
   const [cursor, setCursor] = useState(() => routeParam('month', isMonthStr, todayStr().slice(0, 7)) + '-01');
   const [selectedDate, setSelectedDate] = useState(() =>
     routeParam('day', (d) => isDateStr(d) && d.slice(0, 7) === cursor.slice(0, 7), todayStr())
@@ -148,7 +159,9 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
     : view === 'year'
       ? { from: monthStart(year, 1), to: `${year}-12-31` }
       : view === 'day'
-        ? { from: selectedDate, to: selectedDate }
+        ? weekMode
+          ? { from: weekStart(selectedDate), to: addDays(weekStart(selectedDate), 6) }
+          : { from: selectedDate, to: selectedDate }
         : { from: monthStart(year, month), to: `${year}-${pad(month)}-${daysInMonth(year, month)}` };
 
   async function load() {
@@ -176,7 +189,7 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
   useEffect(() => {
     const today = todayStr();
     setRouteParams({
-      view: view === 'month' ? null : view,
+      view: view === 'day' ? null : view,
       month: cursor.slice(0, 7) === today.slice(0, 7) ? null : cursor.slice(0, 7),
       day: selectedDate === today ? null : selectedDate,
       status: statusFilter,
@@ -202,32 +215,41 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
   // The day view's columns: every master shown (with all of them on screen),
   // the one picked, or the login's own calendar. Each carries that weekday's
   // hours and the day's blocks, so time off is drawn hatched.
+  // With every master on screen, the masters shown on the open day; with one
+  // calendar, its week. Each column carries its weekday's hours and its day's
+  // blocks, fetched below, so time off is drawn hatched.
+  const ownColor = calendarMaster?.color ?? account?.master?.color;
+  const weekDates = weekMode ? Array.from({ length: 7 }, (_, i) => addDays(weekStart(selectedDate), i)) : [];
   const dayColumns = allMasters
-    ? byWork.filter((m) => !hiddenMasters.has(m.id)).map((m) => ({ id: m.id, name: m.name || m.slug, color: m.color }))
-    : [{
-        id: calendarMaster?.id ?? null,
-        name: calendarMaster ? calendarMaster.name || calendarMaster.slug : T.dayOwnColumn,
-        color: calendarMaster?.color ?? account?.master?.color,
-      }];
-  const dayColumnKey = dayColumns.map((c) => c.id ?? 'own').join(',');
-  const [dayAvailability, setDayAvailability] = useState(() => new Map());
+    ? byWork
+        .filter((m) => !hiddenMasters.has(m.id))
+        .map((m) => ({ key: `m${m.id}`, masterId: m.id, date: selectedDate, label: m.name || m.slug, color: m.color }))
+    : weekDates.map((d) => ({
+        key: d,
+        masterId: null,
+        date: d,
+        label: `${WEEKDAY_SHORT[lang][parseDay(d).getDay()]} ${parseDay(d).getDate()}`,
+        color: ownColor,
+        selected: d === selectedDate,
+      }));
+  // Whose hours and blocks are needed: each master shown, or the one calendar
+  // (null: the login's own), over the dates on screen.
+  const availabilityFor = allMasters ? dayColumns.map((c) => c.masterId) : [calendarMaster?.id ?? null];
+  const availabilityKey = `${availabilityFor.join(',')}|${range.from}|${range.to}`;
+  const [availability, setAvailability] = useState(() => new Map());
   useEffect(() => {
     if (view !== 'day') return;
     let cancelled = false;
     (async () => {
       try {
         const entries = await Promise.all(
-          dayColumns.map(async (c) => {
-            const id = c.id ?? undefined;
-            const [hours, blocks] = await Promise.all([
-              api.getWeeklyHours(id),
-              api.getBlocks(selectedDate, selectedDate, id),
-            ]);
-            const weekday = parseDay(selectedDate).getDay();
-            return [c.id ?? 'own', { hours: hours.find((h) => h.day_of_week === weekday) ?? null, blocks }];
+          availabilityFor.map(async (masterId) => {
+            const id = masterId ?? undefined;
+            const [hours, blocks] = await Promise.all([api.getWeeklyHours(id), api.getBlocks(range.from, range.to, id)]);
+            return [masterId, { hours, blocks }];
           })
         );
-        if (!cancelled) setDayAvailability(new Map(entries));
+        if (!cancelled) setAvailability(new Map(entries));
       } catch (err) {
         if (!cancelled) onAuthError(err);
       }
@@ -236,7 +258,17 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, selectedDate, dayColumnKey]);
+  }, [view, availabilityKey]);
+  const withAvailability = (c) => {
+    const a = availability.get(allMasters ? c.masterId : calendarMaster?.id ?? null);
+    if (!a) return c;
+    const weekday = parseDay(c.date).getDay();
+    return {
+      ...c,
+      hours: a.hours.find((h) => h.day_of_week === weekday) ?? null,
+      blocks: a.blocks.filter((b) => b.date === c.date),
+    };
+  };
 
   // The colour dots under a day in the month: one per master with bookings
   // that day, in the salon's order, with how many each has.
@@ -348,7 +380,7 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
     setBookingForm({
       ...EMPTY_BOOKING_FORM,
       items: [],
-      date: cleanupView ? todayStr() : selectedDate || todayStr(),
+      date: prefill.date ?? (cleanupView ? todayStr() : selectedDate || todayStr()),
       masterId: String(prefill.masterId ?? calendarMaster?.id ?? masters[0]?.id ?? ''),
       ...(prefill.time ? { time: prefill.time } : {}),
     });
@@ -360,6 +392,8 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
   // without touching anything changes nothing.
   function openEditBooking(booking) {
     const { dateObj, time } = splitLocalDateTime(booking.start_time);
+    // The form opens in that day's list, so that day is the one open.
+    if (!cleanupView && view !== 'year') openDay(dateKeyOf(booking));
     setBookingForm({
       items: (booking.items ?? []).map((item) => ({
         serviceId: String(item.service_id),
@@ -448,12 +482,17 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
     setSelectedDate(today.slice(0, 7) === `${y}-${pad(m)}` ? today : `${y}-${pad(m)}-01`);
   }
 
+  // Opens a day: the list under the calendar, and the day view's day or week.
+  function openDay(d) {
+    setCursor(d.slice(0, 7) + '-01');
+    setSelectedMonth(Number(d.slice(5, 7)));
+    setSelectedDate(d);
+  }
+
   function stepCursor(delta) {
     if (view === 'day') {
-      const next = addDays(selectedDate, delta);
-      setCursor(next.slice(0, 7) + '-01');
-      setSelectedMonth(Number(next.slice(5, 7)));
-      setSelectedDate(next);
+      // A day at a time across masters; a week at a time through one calendar.
+      openDay(addDays(selectedDate, weekMode ? delta * 7 : delta));
       return;
     }
     if (view === 'year') {
@@ -473,7 +512,9 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
     view === 'year'
       ? String(year)
       : view === 'day'
-        ? formatDate(parseDay(selectedDate), lang)
+        ? weekMode
+          ? `${formatDate(parseDay(weekDates[0]), lang)} – ${formatDate(parseDay(weekDates[6]), lang)}`
+          : formatDate(parseDay(selectedDate), lang)
         : `${MONTH_FULL[lang][month - 1]} ${year}`;
 
   // The bookings in the period on screen, and everyone who's booked, as CSV:
@@ -497,7 +538,7 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
           {!cleanupView && (
             <>
               <div role="group" aria-label={T.viewLabel} style={{ display: 'flex', gap: 4 }}>
-                {[['day', T.viewDay], ['month', T.viewMonth], ['year', T.viewYear]].map(([key, label]) => (
+                {[['day', weekMode ? T.viewWeek : T.viewDay], ['month', T.viewMonth], ['year', T.viewYear]].map(([key, label]) => (
                   <button
                     key={key}
                     className={view === key ? 'btn-primary' : 'btn-outline'}
@@ -514,15 +555,6 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
               <span style={{ minWidth: 140, textAlign: 'center', fontSize: 14, fontWeight: 600 }}>{periodLabel}</span>
               <button className="btn-outline" onClick={() => stepCursor(1)} aria-label={T.nextWeek}>
                 →
-              </button>
-              <button
-                className="btn-outline"
-                onClick={() => {
-                  goToMonth(Number(todayStr().slice(0, 4)), Number(todayStr().slice(5, 7)));
-                  if (view === 'year') setView('month');
-                }}
-              >
-                {T.today}
               </button>
             </>
           )}
@@ -607,23 +639,21 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
                 <DayTimeline
                   T={T}
                   lang={lang}
-                  date={selectedDate}
-                  columns={dayColumns.map((c) => ({ ...c, ...dayAvailability.get(c.id ?? 'own') }))}
-                  bookings={(byDate.get(selectedDate) || []).filter((b) => b.status !== 'cancelled')}
+                  columns={dayColumns.map(withAvailability)}
+                  bookings={shown.filter((b) => b.status !== 'cancelled' && dayColumns.some((c) => c.date === dateKeyOf(b)))}
                   onPickBooking={openEditBooking}
                   onPickSlot={
                     editingBookingId === null && services.length > 0
-                      ? (masterId, time) => openAddBooking({ masterId: masterId ?? undefined, time })
+                      ? (masterId, time, date) => openAddBooking({ masterId: masterId ?? undefined, time, date })
                       : null
                   }
+                  // A day's header in the week opens that day's list below.
+                  onPickDate={weekMode ? openDay : null}
                   onMoveBooking={editingBookingId === null ? moveBooking : null}
-                  hint={dayColumns.length > 1 ? T.timelineDragHintSalon : T.timelineDragHint}
+                  hint={weekMode ? T.timelineDragHint : T.timelineDragHintSalon}
                   canTake={canTake}
-                  onChangeDay={(d) => {
-                    setCursor(d.slice(0, 7) + '-01');
-                    setSelectedMonth(Number(d.slice(5, 7)));
-                    setSelectedDate(d);
-                  }}
+                  // A day per screen: dragging to another goes by the day strip.
+                  onChangeDay={weekMode ? null : openDay}
                 />
               )}
               </>

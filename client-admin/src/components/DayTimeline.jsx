@@ -3,22 +3,24 @@ import { splitLocalDateTime, todayLocalStr } from 'salon-shared/time';
 import { dayLabel, localName } from '../i18n.js';
 import { MasterDot, masterColor, masterTint } from '../masterColors.jsx';
 
-// One day as a timeline, a column per master side by side: bookings are blocks
-// in the master's colour, and the time a master isn't working (outside their
-// hours, their lunch, a day off or a blocked stretch) is hatched — so free
-// gaps and who could take a walk-in show at a glance. Clicking a booking opens
-// it; clicking free time in a column starts a booking for that master then.
+// Bookings as a timeline of columns side by side: with every master on screen,
+// one day with a column per master; with one calendar, its week with a column
+// per day. Bookings are blocks in the master's colour, and the time a master
+// isn't working (outside their hours, their lunch, a day off or a blocked
+// stretch) is hatched — so free gaps show at a glance. Clicking a booking opens
+// it; clicking free time in a column starts a booking for that master and day.
 //
-// A confirmed booking can be dragged to another time, or to another master's
-// column (`onMoveBooking`). While it's dragged, only the columns of masters
-// who can take it (`canTake`: they perform everything in it) stay live; the
-// rest are dimmed and refuse the drop, and so does a spot that would overlap
-// another booking. A press that barely moves is still a click. To move it to
-// another day, a strip of days appears while dragging: holding the booking
-// over one (`onChangeDay`) turns the timeline to that day, and the drag goes on.
+// A confirmed booking can be dragged to another time or column
+// (`onMoveBooking`). While it's dragged, only the columns that can take it
+// (`canTake`: their master performs everything in it) stay live; the rest are
+// dimmed and refuse the drop, and so does a spot that would overlap another
+// booking. A press that barely moves is still a click. With a column per
+// master, a strip of days appears while dragging: holding the booking over one
+// (`onChangeDay`) turns the timeline to that day, and the drag goes on.
 //
-// `columns`: [{ id, name, color, hours, blocks }] — `hours` the weekly_hours
-// row for this weekday (null while loading), `blocks` that day's
+// `columns`: [{ key, masterId, date, label, color, hours, blocks, isToday }] —
+// `masterId` null for a single calendar's own columns, `hours` the
+// weekly_hours row for that weekday (null while loading), `blocks` that day's
 // availability_blocks. `bookings` carry `master_id` when there are several.
 
 const PX_PER_MIN = 1.2;
@@ -30,20 +32,25 @@ const addDays = (dateStr, n) => {
   const dt = new Date(Date.UTC(y, m - 1, d + n));
   return dt.toISOString().slice(0, 10);
 };
-const columnKey = (c) => c.id ?? 'own';
 const toMin = (t) => {
   const [h, m] = String(t).slice(0, 5).split(':').map(Number);
   return h * 60 + m;
 };
 const toTime = (min) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+const dateKeyOf = (dateObj) =>
+  `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+export const parseDate = (d) => {
+  const [y, m, day] = d.split('-').map(Number);
+  return new Date(y, m - 1, day);
+};
 
-// Start and end of a booking in minutes after midnight, in the calendar's
-// timezone. A visit running past midnight is cut at the end of the day.
-function span(booking, date) {
+// A booking's day, and its start and end in minutes after midnight, in the
+// calendar's timezone. A visit running past midnight is cut at the day's end.
+function span(booking) {
   const start = splitLocalDateTime(booking.start_time);
   const end = splitLocalDateTime(booking.end_time);
-  const endKey = `${end.dateObj.getFullYear()}-${String(end.dateObj.getMonth() + 1).padStart(2, '0')}-${String(end.dateObj.getDate()).padStart(2, '0')}`;
-  return { start: toMin(start.time), end: endKey === date ? toMin(end.time) : 24 * 60 };
+  const date = dateKeyOf(start.dateObj);
+  return { date, start: toMin(start.time), end: dateKeyOf(end.dateObj) === date ? toMin(end.time) : 24 * 60 };
 }
 
 // The stretches of the day a master isn't taking bookings.
@@ -58,8 +65,10 @@ function closedStretches(hours, blocks, from, to) {
 
 const HATCH = 'repeating-linear-gradient(135deg, var(--line) 0 2px, transparent 2px 8px)';
 
-export default function DayTimeline({ T, lang, date, columns, bookings, onPickBooking, onPickSlot, onMoveBooking, canTake, onChangeDay, hint }) {
-  const spans = new Map(bookings.map((b) => [b.id, span(b, date)]));
+export default function DayTimeline({
+  T, lang, columns, bookings, onPickBooking, onPickSlot, onPickDate, onMoveBooking, canTake, onChangeDay, hint,
+}) {
+  const spans = new Map(bookings.map((b) => [b.id, span(b)]));
   const columnEls = useRef(new Map());
   const scroller = useRef(null);
   // The drag under way: the booking, where it was grabbed, which columns may
@@ -82,10 +91,13 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
     clearTimeout(dayHover.current?.timer);
     dayHover.current = null;
   };
-  const inColumn = (c) => (b) => columns.length === 1 || b.master_id === c.id;
+  const inColumn = (c) => (b) => {
+    const s = spans.get(b.id);
+    return s.date === c.date && (c.masterId === null || b.master_id === c.masterId);
+  };
 
-  // The axis covers everyone's working hours and every booking, on whole
-  // hours; an empty day off still shows a normal working day's frame.
+  // The axis covers every column's working hours and every booking, on whole
+  // hours; a page of days off still shows a normal working day's frame.
   const edges = [];
   for (const c of columns) {
     if (c.hours?.is_open) edges.push(toMin(c.hours.start_time), toMin(c.hours.end_time));
@@ -97,23 +109,22 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
   const hourMarks = [];
   for (let m = from; m <= to; m += 60) hourMarks.push(m);
 
-  const isToday = date === todayLocalStr();
-  const nowMin = isToday ? toMin(splitLocalDateTime(new Date().toISOString()).time) : null;
+  const today = todayLocalStr();
+  const nowMin = toMin(splitLocalDateTime(new Date().toISOString()).time);
 
   function pickSlot(event, column) {
     if (!onPickSlot || justDragged.current) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const minute = from + Math.floor((event.clientY - rect.top) / PX_PER_MIN / SNAP_MIN) * SNAP_MIN;
-    onPickSlot(column.id, toTime(Math.min(Math.max(minute, from), to - SNAP_MIN)));
+    onPickSlot(column.masterId, toTime(Math.min(Math.max(minute, from), to - SNAP_MIN)), column.date);
   }
 
   function startDrag(event, booking, column) {
     if (!onMoveBooking || booking.status !== 'confirmed' || event.button > 0) return;
-    const rect = columnEls.current.get(columnKey(column)).getBoundingClientRect();
+    const rect = columnEls.current.get(column.key).getBoundingClientRect();
     const s = spans.get(booking.id);
-    // Keeps the moves coming to this block wherever the pointer goes. Can fail
-    // for a pointer the browser no longer tracks; the drag works without it
-    // while the pointer stays over the block's column.
+    // Keeps the moves coming to this block while it's on screen; the window
+    // follows the pointer either way (see below).
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
@@ -121,14 +132,13 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
     }
     setDrag({
       booking,
-      // Where it was: compared at the drop, whatever day is on screen by then.
-      originDate: date,
-      originStart: s.start,
+      // Where it was: compared at the drop, whatever is on screen by then.
+      origin: { date: s.date, start: s.start, masterId: column.masterId },
       length: s.end - s.start,
       grabMin: (event.clientY - rect.top) / PX_PER_MIN + from - s.start,
       x: event.clientX,
       y: event.clientY,
-      live: new Set(columns.filter((c) => canTake(booking, c.id)).map(columnKey)),
+      live: new Set(columns.filter((c) => canTake(booking, c.masterId)).map((c) => c.key)),
       moved: false,
       target: null,
     });
@@ -146,14 +156,15 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
     if (chip) {
       if (dayHover.current?.date !== chip) {
         stopDayHover();
-        dayHover.current = chip === date ? { date: chip } : { date: chip, timer: setTimeout(() => onChangeDay(chip), DAY_HOVER_MS) };
+        const onScreen = columns[0]?.date === chip;
+        dayHover.current = onScreen ? { date: chip } : { date: chip, timer: setTimeout(() => onChangeDay(chip), DAY_HOVER_MS) };
       }
       setDrag({ ...drag, moved: true, target: null });
       return;
     }
     stopDayHover();
     // Near either edge of a timeline wider than the screen, it scrolls, so a
-    // master whose column is out of view can still be reached.
+    // column out of view can still be reached.
     const box = scroller.current?.getBoundingClientRect();
     if (box) {
       if (event.clientX > box.right - 40) scroller.current.scrollLeft += 24;
@@ -163,7 +174,7 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
     let column = null;
     let best = Infinity;
     for (const c of columns) {
-      const rect = columnEls.current.get(columnKey(c))?.getBoundingClientRect();
+      const rect = columnEls.current.get(c.key)?.getBoundingClientRect();
       if (!rect) continue;
       const distance = event.clientX < rect.left ? rect.left - event.clientX : event.clientX > rect.right ? event.clientX - rect.right : 0;
       if (distance < best) {
@@ -175,7 +186,6 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
     const raw = (event.clientY - column.rect.top) / PX_PER_MIN + from - drag.grabMin;
     const start = Math.min(Math.max(Math.round(raw / SNAP_MIN) * SNAP_MIN, from), to - Math.min(drag.length, to - from));
     const end = start + drag.length;
-    const key = columnKey(column.c);
     const clash = bookings.some((b) => {
       if (b.id === drag.booking.id || !inColumn(column.c)(b)) return false;
       const o = spans.get(b.id);
@@ -183,30 +193,31 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
     });
     // Why a spot refuses the drop, said on the ghost: not this master's work,
     // or the time is taken.
-    const refusal = !drag.live.has(key) ? 'dropNotTheirs' : clash ? 'dropNotHere' : null;
-    setDrag({ ...drag, moved: true, target: { column: column.c, key, start, ok: !refusal, refusal } });
+    const refusal = !drag.live.has(column.c.key) ? 'dropNotTheirs' : clash ? 'dropNotHere' : null;
+    setDrag({ ...drag, moved: true, target: { column: column.c, start, ok: !refusal, refusal } });
   }
 
   function endDrag() {
     const drag = dragRef.current;
     if (!drag) return;
     stopDayHover();
-    const { booking, moved, target } = drag;
+    const { booking, moved, target, origin } = drag;
     setDrag(null);
     if (!moved) return;
     justDragged.current = true;
     setTimeout(() => {
       justDragged.current = false;
     }, 0);
-    const sameColumn = columns.length === 1 || target?.column.id === booking.master_id;
-    if (target?.ok && (date !== drag.originDate || target.start !== drag.originStart || !sameColumn)) {
-      onMoveBooking(booking, { masterId: target.column.id, time: toTime(target.start), date });
+    if (!target?.ok) return;
+    const { column, start } = target;
+    if (column.date !== origin.date || start !== origin.start || column.masterId !== origin.masterId) {
+      onMoveBooking(booking, { masterId: column.masterId, time: toTime(start), date: column.date });
     }
   }
 
   // While a booking is held, the pointer is followed on the whole window: the
   // block it started on is gone once another day comes up. Registered afresh
-  // each render, so the handlers see that day's columns and bookings.
+  // each render, so the handlers see what's on screen now.
   useEffect(() => {
     if (!drag) return undefined;
     const cancel = () => {
@@ -224,11 +235,7 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
   });
 
   const dragging = drag?.moved ? drag : null;
-  const chipDates = dragging && onChangeDay ? Array.from({ length: 7 }, (_, i) => addDays(dragging.originDate, i - 3)) : [];
-  const parseDate = (d) => {
-    const [y, m, day] = d.split('-').map(Number);
-    return new Date(y, m - 1, day);
-  };
+  const chipDates = dragging && onChangeDay ? Array.from({ length: 7 }, (_, i) => addDays(dragging.origin.date, i - 3)) : [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -244,7 +251,7 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
       <div style={{ minHeight: 46, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 12.5, color: 'var(--muted)', marginRight: 4 }}>{T.dragToDay}</span>
         {chipDates.map((d) => {
-          const current = d === date;
+          const current = d === columns[0]?.date;
           const held = dayHover.current?.date === d && !current;
           return (
             <span
@@ -276,19 +283,23 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: `44px repeat(${columns.length}, minmax(150px, 1fr))`,
-          minWidth: 44 + columns.length * 150,
+          gridTemplateColumns: `44px repeat(${columns.length}, minmax(130px, 1fr))`,
+          minWidth: 44 + columns.length * 130,
         }}
       >
-        {/* Header: who each column is, and how many visits they have. */}
+        {/* Header: whose or which day each column is, and how many visits. A
+            day's header opens that day's list under the timeline. */}
         <span style={{ borderBottom: '1px solid var(--line)' }} />
         {columns.map((c) => {
           const count = bookings.filter(inColumn(c)).length;
+          const Tag = onPickDate ? 'button' : 'div';
           return (
-            <div
-              key={c.id ?? 'own'}
+            <Tag
+              key={c.key}
+              onClick={onPickDate ? () => onPickDate(c.date) : undefined}
+              aria-current={c.selected ? 'date' : undefined}
               style={{
-                opacity: dragging && !dragging.live.has(columnKey(c)) ? 0.35 : 1,
+                opacity: dragging && !dragging.live.has(c.key) ? 0.35 : 1,
                 display: 'flex',
                 alignItems: 'center',
                 gap: 7,
@@ -296,14 +307,26 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
                 borderBottom: `3px solid ${masterColor(c.color)}`,
                 borderLeft: '1px solid var(--line)',
                 minWidth: 0,
+                textAlign: 'left',
+                background: c.selected ? 'var(--sage-light)' : 'transparent',
+                cursor: onPickDate ? 'pointer' : 'default',
               }}
             >
               <MasterDot color={c.color} />
-              <span style={{ fontSize: 13.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {c.name}
+              <span
+                style={{
+                  fontSize: 13.5,
+                  fontWeight: c.date === today && c.masterId === null ? 700 : 600,
+                  color: c.date === today && c.masterId === null ? 'var(--sage)' : 'var(--ink)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {c.label}
               </span>
               <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>{count}</span>
-            </div>
+            </Tag>
           );
         })}
 
@@ -329,13 +352,12 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
 
         {columns.map((c) => {
           const own = bookings.filter(inColumn(c));
-          const key = columnKey(c);
-          const live = !dragging || dragging.live.has(key);
-          const target = dragging?.target?.key === key ? dragging.target : null;
+          const live = !dragging || dragging.live.has(c.key);
+          const target = dragging?.target?.column.key === c.key ? dragging.target : null;
           return (
             <div
-              key={key}
-              ref={(el) => (el ? columnEls.current.set(key, el) : columnEls.current.delete(key))}
+              key={c.key}
+              ref={(el) => (el ? columnEls.current.set(c.key, el) : columnEls.current.delete(c.key))}
               onClick={(e) => !dragging && pickSlot(e, c)}
               title={onPickSlot && !dragging ? T.timelineAddHint : undefined}
               style={{
@@ -457,7 +479,7 @@ export default function DayTimeline({ T, lang, date, columns, bookings, onPickBo
                   {!target.ok && <span style={{ display: 'block', fontWeight: 600, color: 'var(--terracotta)' }}>{T[target.refusal]}</span>}
                 </div>
               )}
-              {nowMin !== null && nowMin >= from && nowMin <= to && (
+              {c.date === today && nowMin >= from && nowMin <= to && (
                 <div
                   aria-hidden="true"
                   style={{
