@@ -27,6 +27,53 @@ Staging is live at **https://app.beautybookam.duckdns.org**; masters' pages are 
 - **Per-master timezone, currency and languages** (Armenian, Russian, English). Names need
   filling in only in the languages offered; blanks fall back to another language.
 
+### Bookings screen (2026-10-23)
+- **Opens on the Day view.** With every master on screen it's the day, a column per master;
+  with one calendar (a master's own login, or the owner picking one master) it's that
+  calendar's **Week**, Monday to Sunday, a column per day. Month and Year are still there.
+  The Today button is gone (the screen opens on today; arrows step a day, a week, a month).
+- **Timeline**: bookings as blocks; time outside hours, lunch, days off and blocked
+  stretches hatched; a now-line today. Clicking a booking opens it in its day's list;
+  clicking free time starts a booking for that master, day and time (snapped to 15
+  minutes). A short visit shows as one line, start and client.
+- **Master colours**: each master has one of eight colours, picked automatically by their
+  place in the salon or chosen by the owner on the Masters screen (migration 013,
+  `masters.color`); the master sees theirs in their own panel. Across masters: a dot per
+  master under each month day (counts in the tooltip), a colour stripe and dot on each
+  booking in the list, and a legend of chips that hides or shows each master's bookings.
+- **Masters of the same trade side by side**: columns, legend and dots are ordered by each
+  master's main treatment (the one they perform most services in), so two barbers sit
+  together.
+- **Drag and drop**: a confirmed booking drags to another time, master or day. While it's
+  dragged only masters who perform everything in it stay live; the rest fade and refuse
+  the drop, and a spot that would overlap says so. Across masters, a strip of days appears
+  while dragging — holding the booking over one turns the timeline to that day and the drag
+  carries on; in the week view it's just another column. Near the edge a wide timeline
+  scrolls. Mouse and touch.
+- **Status colours** in one calendar's week: confirmed yellow, completed green, cancelled or
+  no-show red, with a legend; cancelled bookings show struck through and share the column
+  with a booking that took their time. Across masters the colour stays the master's. The
+  list's status words use the same colours.
+- **Most-booked zones first** in guests' zone lists (master and salon pages) and the admin
+  booking form: most booked over the last 90 days, cancellations not counted, ties in
+  price-list order. Brought over from the single-salon app.
+- **Income by service** on the dashboard shows how many visits each zone had, with each
+  treatment's total in its header. Also from the single-salon app.
+
+### Salons: who changes what (2026-10-23)
+- A salon's **master** has Treatments and Services tabs for the part of the shared price
+  list that is theirs alone: a service is theirs when no other working master performs it;
+  a treatment is theirs when everything in it is, or, while empty, when they created it
+  (migration 012, `service_categories.created_by_master_id`). What they add is performed by
+  them only. Shared services and treatments show who else does them and stay the owner's;
+  the server refuses a master's change (403). Starter templates stay the owner's.
+- A master sees only the services they perform. **Bookings entered by hand** — by the master
+  or the owner — take only services that booking's master performs (`not_performed`); what
+  a booking already has stays allowed when it's edited; a visit handed to another master
+  must be one they perform.
+- The **owner** sees who performs each service, and their booking form narrows the zones to
+  the chosen master's.
+
 ### For guests
 - Booking page per master, resolved from the subdomain (or a custom domain): landing page,
   treatments → zones (several in one visit) → time → details → confirmation.
@@ -80,9 +127,16 @@ Staging is live at **https://app.beautybookam.duckdns.org**; masters' pages are 
 - Fresh multi-tenant schema in one migration (`server/migrations/1790000000000_platform-schema.js`).
 - Timezone handling with `Intl` (daylight saving included) instead of a fixed UTC+4 offset,
   on both server and clients.
-- 18 end-to-end API tests (`server/test/api.test.js`) against a real Postgres: tenant
+- 47 end-to-end API tests (`server/test/api.test.js`) against a real Postgres: tenant
   isolation, sign-up, timezones, trial expiry, billing webhooks (real and forged), platform
-  screens, password changes, account deletion with bookings.
+  screens, password changes, account deletion with bookings, salons, and (added
+  2026-10-23) zone popularity order, a salon master's own part of the price list and
+  bookings limited to what a master performs, and master colours.
+- Migrations since the first: 001–011 (notice, booking window, platform settings,
+  organizations, salons, income split, taxes, salon page, plans, Armenian first, custom
+  domain status), 012 treatment creator and 013 master colour (both 2026-10-23, run on the
+  server from a `node:20-alpine` container on the shared network with the root-only
+  `.env`).
 - Fixed along the way: account deletion failed for any master with bookings (cascade
   order); blocked-delete errors now recognised on Postgres 16 and 17+; guest page opened in
   the wrong language; reschedule retry reloaded slots with the wrong arguments; dates in
@@ -101,6 +155,10 @@ Staging is live at **https://app.beautybookam.duckdns.org**; masters' pages are 
   databases. Retention pruning tested on dummy folders.
 - `deploy/deploy.sh` rebuilds the backend and both frontends; deploy docs in
   `deploy/README.md`.
+- **Demo salon on staging** (2026-10-23, test data): "Demo Beauty Salon (test)" at
+  `demo-salon.beautybookam.duckdns.org`, 8 masters (two barbers, sugaring, nails, massage,
+  makeup, brows & lashes, hair) with test prices and about 135 test bookings over a week.
+  Logins are in `demo-salon-logins.txt` outside the repository, never committed.
 - Lesson recorded: never name a compose service `backend` on the shared network — another
   site's nginx proxies to `http://backend:4000`, and a second `backend` split its traffic
   (happened once on 2026-10-07, fixed the same day).
