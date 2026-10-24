@@ -47,6 +47,18 @@ export const SendIcon = (props) => (
   </Icon>
 );
 
+// Telegram's logo as Telegram draws it — a white plane on its blue circle —
+// rather than a line icon, so the bot's button is recognisable at a glance.
+export const TelegramLogo = ({ size = 32 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{ flexShrink: 0 }}>
+    <circle cx="12" cy="12" r="12" fill="#2AABEE" />
+    <path
+      fill="#fff"
+      d="M5.43 11.87l11.3-4.36c.52-.19.98.13.81.92l-1.92 9.06c-.14.64-.52.8-1.06.5l-2.94-2.17-1.42 1.37c-.16.16-.29.29-.6.29l.21-2.99 5.44-4.92c.24-.21-.05-.33-.37-.12l-6.73 4.24-2.9-.9c-.63-.2-.64-.63.13-.93z"
+    />
+  </svg>
+);
+
 export const CalendarIcon = (props) => (
   <Icon {...props}>
     <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />

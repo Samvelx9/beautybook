@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react';
 import LangSwitcher from './LangSwitcher.jsx';
 import ZoneList from './ZoneList.jsx';
-import { CalendarIcon, SendIcon } from './Icons.jsx';
+import { CalendarIcon, TelegramLogo } from './Icons.jsx';
+import { api } from '../api.js';
 import { formatDateAt, formatPrice, localName } from '../i18n.js';
 import { splitLocalDateTime } from '../lib/time.js';
 import { rem } from '../lib/rem.js';
@@ -118,36 +120,115 @@ const reminderButton = {
   textDecoration: 'none',
 };
 
+// Telegram's own blue, so the bot's row reads as Telegram at a glance.
+const TELEGRAM_BLUE = '#2AABEE';
+
+const telegramButton = {
+  ...reminderButton,
+  gap: 14,
+  padding: '16px 16px',
+  borderRadius: 16,
+  border: `1.5px solid ${TELEGRAM_BLUE}`,
+  background: 'rgba(42, 171, 238, 0.09)',
+  fontSize: rem(15.5),
+  fontWeight: 700,
+};
+
+// How often the open confirmation screen asks whether Start has been pressed,
+// and for how long it keeps asking after the guest went to Telegram.
+const LINK_POLL_MS = 3000;
+const LINK_POLL_FOR_MS = 15 * 60_000;
+
 // The two ways a guest can be reminded of the visit: their own calendar, and
 // the platform's bot. Both are plain links — the calendar file opens in the phone's
 // calendar app, the Telegram one in the Telegram app — and either is left out
 // when the server didn't hand back what it needs (the bot only takes guests on
-// the live site).
+// the live site). Telegram comes first and stands out: it's the one that also
+// lets the guest confirm or cancel from the reminder itself. Its checkbox ticks
+// once the guest has pressed Start in the bot — the page asks the server every
+// few seconds after they've opened Telegram, and again as soon as they're back.
 function Reminders({ f }) {
   const { T, calendarUrl, activeBooking, telegramOpened } = f;
   const telegramLink = activeBooking.telegramLink;
+  const guestToken = activeBooking.guestToken;
+  const [linked, setLinked] = useState(false);
+
+  useEffect(() => {
+    if (!telegramOpened || linked || !guestToken) return undefined;
+    let stopped = false;
+    const check = () => {
+      if (stopped || document.visibilityState === 'hidden') return;
+      api.telegramStatus(guestToken)
+        .then((status) => { if (!stopped && status?.linked) setLinked(true); })
+        .catch(() => {});
+    };
+    check();
+    const timer = setInterval(check, LINK_POLL_MS);
+    const giveUp = setTimeout(() => clearInterval(timer), LINK_POLL_FOR_MS);
+    document.addEventListener('visibilitychange', check);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      clearTimeout(giveUp);
+      document.removeEventListener('visibilitychange', check);
+    };
+  }, [telegramOpened, linked, guestToken]);
+
   if (!calendarUrl && !telegramLink) return null;
+
+  let caption = T.telegramCaption;
+  if (linked) caption = T.telegramLinked;
+  else if (telegramOpened) caption = T.telegramPressStart;
 
   return (
     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8, textAlign: 'left' }}>
       <span style={{ fontSize: rem(12), color: 'var(--muted)', fontWeight: 600, letterSpacing: 0.3 }}>{T.stayReminded}</span>
+      {telegramLink && (
+        <a href={telegramLink} target="_blank" rel="noopener noreferrer" onClick={f.markTelegramOpened} style={telegramButton}>
+          <TelegramLogo size={36} />
+          <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <span>{T.telegramReminders}</span>
+            <span style={{ fontSize: rem(12.5), fontWeight: 500, color: linked || telegramOpened ? 'var(--sage)' : 'var(--muted)' }}>
+              {caption}
+            </span>
+          </span>
+          <Checkbox checked={linked} />
+        </a>
+      )}
       {calendarUrl && (
         <a href={calendarUrl} style={reminderButton}>
           <CalendarIcon />
           <span>{T.addToCalendar}</span>
         </a>
       )}
-      {telegramLink && (
-        <a href={telegramLink} target="_blank" rel="noopener noreferrer" onClick={f.markTelegramOpened} style={reminderButton}>
-          <SendIcon />
-          <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span>{T.telegramReminders}</span>
-            <span style={{ fontSize: rem(12), fontWeight: 500, color: telegramOpened ? 'var(--sage)' : 'var(--muted)' }}>
-              {telegramOpened ? T.telegramPressStart : T.telegramCaption}
-            </span>
-          </span>
-        </a>
-      )}
     </div>
+  );
+}
+
+// Shows whether the bot has the guest yet; not something they tick themselves,
+// so it's only drawn — the caption next to it says the same in words.
+function Checkbox({ checked }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        width: 24,
+        height: 24,
+        flexShrink: 0,
+        borderRadius: 7,
+        border: `2px solid ${TELEGRAM_BLUE}`,
+        background: checked ? TELEGRAM_BLUE : 'var(--white)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        transition: 'background 0.2s',
+      }}
+    >
+      {checked && (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ stroke: '#fff', strokeWidth: 3.2, strokeLinecap: 'round', strokeLinejoin: 'round' }}>
+          <path d="M5 12.5L10 17.5L19 7" />
+        </svg>
+      )}
+    </span>
   );
 }

@@ -369,6 +369,10 @@ test('guests must prove a booking is theirs to change it', async () => {
 
   const manage = await call('POST', '/bookings/manage', { slug: 'bella', body: { token: bookingA.guestToken } });
   assert.equal(manage.status, 404);
+  const tgOther = await call('POST', '/bookings/telegram-status', { slug: 'bella', body: { token: bookingA.guestToken } });
+  assert.equal(tgOther.status, 404);
+  const tgOwn = await call('POST', '/bookings/telegram-status', { slug: 'anna', body: { token: bookingA.guestToken } });
+  assert.deepEqual(tgOwn.body, { linked: false });
   const ics = await call('GET', `/calendar/${bookingA.guestToken}.ics`, { slug: 'bella' });
   assert.equal(ics.status, 404);
   const icsOwn = await call('GET', `/calendar/${bookingA.guestToken}.ics`, { slug: 'anna' });

@@ -90,6 +90,10 @@ export const api = {
   manageBooking: (token) =>
     request('/bookings/manage', { method: 'POST', body: JSON.stringify({ token }) }),
 
+  // Whether the guest has pressed Start in the bot for this booking yet.
+  telegramStatus: (token) =>
+    request('/bookings/telegram-status', { method: 'POST', body: JSON.stringify({ token }) }),
+
   // `proof` is { phone, token? } — what shows the booking is this guest's.
   cancelBooking: (id, proof) =>
     request(`/bookings/${id}/cancel`, { method: 'POST', body: JSON.stringify(proof) }),

@@ -484,6 +484,18 @@ guestRouter.post('/bookings/manage', lookupLimit, asyncHandler(async (req, res) 
   });
 }));
 
+// POST /api/bookings/telegram-status — whether the guest has pressed Start in
+// the bot for this booking yet. The confirmation screen asks every few seconds
+// after opening Telegram, to tick its checkbox, so it isn't rate-limited like
+// the lookups: the token is unguessable and the answer is one yes/no.
+guestRouter.post('/bookings/telegram-status', asyncHandler(async (req, res) => {
+  const guest = await guestBookingByToken(req, req.body?.token);
+  if (!guest) {
+    return res.status(404).json({ error: 'booking_not_found' });
+  }
+  res.json({ linked: Boolean(guest.guest_chat_id) });
+}));
+
 // A guest may change a booking only if they show they're its guest: the phone
 // number it was booked with (what the lookup screen already asked for), or the
 // booking's own secret token. A bare id proves nothing — ids are sequential.
