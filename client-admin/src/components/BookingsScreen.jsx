@@ -325,7 +325,8 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
     if (!byDate.has(key)) byDate.set(key, []);
     byDate.get(key).push(b);
   }
-  const sortByTime = (rows) => [...rows].sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+  // Same-time bookings stay in id order, so changing one's status never moves it.
+  const sortByTime = (rows) => [...rows].sort((a, b) => new Date(a.start_time) - new Date(b.start_time) || a.id - b.id);
 
   // What the list under the grid — and the delete controls with it — acts on:
   // the clean-up list, the open month in year view, or the open day.

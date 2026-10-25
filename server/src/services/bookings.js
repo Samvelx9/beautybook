@@ -31,7 +31,9 @@ const BOOKING_FIELDS = `b.id, b.start_time, b.end_time, b.customer_name, b.custo
 // anything from a request; values always arrive as parameters starting at $2.
 export function bookingsQuery({
   where = '',
-  orderBy = 'b.start_time ASC',
+  // The id breaks ties, so bookings at the same time keep their order when one
+  // of them is updated (Postgres otherwise returns ties in any order).
+  orderBy = 'b.start_time ASC, b.id ASC',
   extraFields = '',
   scope = 'master',
 } = {}) {
