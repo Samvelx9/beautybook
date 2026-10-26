@@ -210,24 +210,49 @@ export async function getBotUsername() {
 // that master.
 export async function notifyMaster(master, event) {
   try {
+    if (!telegramToken()) return;
+    const sends = [];
     if (master?.telegram_chat_id) {
       const text = formatMessage(master, event);
-      if (text) await callTelegram('sendMessage', { chat_id: master.telegram_chat_id, text });
+      if (text) sends.push(sendWithRetry(event, { chat_id: master.telegram_chat_id, text }));
     }
     const ownerChat = master?.organization_kind === 'salon' && master.organization_chat_id;
     if (ownerChat && String(ownerChat) !== String(master.telegram_chat_id)) {
       const asOwner = { ...master, notify_lang: master.organization_notify_lang };
       const text = formatMessage(asOwner, event);
-      if (!text) return;
-      const T = masterText(asOwner);
-      const name = await masterName(master.id, asOwner.notify_lang);
-      await callTelegram('sendMessage', {
-        chat_id: ownerChat,
-        text: `${T.master}: ${name || master.slug}\n${text}`,
-      });
+      if (text) {
+        const T = masterText(asOwner);
+        const name = await masterName(master.id, asOwner.notify_lang);
+        sends.push(sendWithRetry(event, {
+          chat_id: ownerChat,
+          text: `${T.master}: ${name || master.slug}\n${text}`,
+        }));
+      }
     }
+    await Promise.all(sends);
   } catch (err) {
     console.error('Telegram notification failed:', err.message);
+  }
+}
+
+// A message that didn't get through because of the network or Telegram itself
+// (no answer, a 5xx, a 429) is tried again a few times over ~12 minutes rather
+// than lost — on Mariam's site a new booking's message once vanished on a
+// single "fetch failed". A 4xx other than 429 won't fix itself, so it isn't
+// retried. The master's and the owner's messages retry independently.
+const RETRY_DELAYS_MS = [5_000, 30_000, 2 * 60_000, 10 * 60_000];
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function sendWithRetry(event, body) {
+  for (let attempt = 0; ; attempt += 1) {
+    const { ok, status } = await callTelegramDetailed('sendMessage', body);
+    if (ok) return;
+    const retryable = status === null || status === 429 || status >= 500;
+    if (!retryable || attempt >= RETRY_DELAYS_MS.length) {
+      console.error(`Telegram notification (${event.type}) not delivered after ${attempt + 1} attempt(s)`);
+      return;
+    }
+    await sleep(RETRY_DELAYS_MS[attempt]);
   }
 }
 

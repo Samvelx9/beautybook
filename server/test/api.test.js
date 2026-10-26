@@ -134,12 +134,14 @@ async function signup(slug, extra = {}) {
   return res.body.token;
 }
 
-// The next date (in the master's zone, from tomorrow on) that falls on a given
-// weekday — far enough ahead to clear the booking cutoff.
-function nextWeekday(dow) {
+// The first Monday–Friday from two days out — far enough ahead to clear the
+// booking cutoff in any test master's timezone, and at most five days out, so
+// still inside the default 7-day booking window. (A fixed weekday, as this
+// once was, fell outside the window on some days of the week.)
+function nextWorkday() {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + 2);
-  while (d.getUTCDay() !== dow) d.setUTCDate(d.getUTCDate() + 1);
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString().slice(0, 10);
 }
 
@@ -273,7 +275,7 @@ test('guest pages are resolved by host and show only their own master', async ()
 });
 
 let bookingA;
-const date = nextWeekday(2); // a Tuesday: open 10:00–19:00 by default
+const date = nextWorkday(); // open 10:00–19:00 by default
 
 test('a guest books, and both masters can be booked at the same hour', async () => {
   const a = await call('POST', '/bookings', {
