@@ -452,7 +452,10 @@ export default function DayTimeline({
                 const sharing = own.some((o) => o.id !== b.id && (o.status === 'cancelled') !== cancelled && overlap(s, spans.get(o.id)));
                 const tone = byStatus ? { line: statusColor(b.status), fill: statusTint(b.status) } : { line: masterColor(c.color), fill: masterTint(c.color) };
                 const zones = (b.items ?? []).map((z) => localName(z, lang)).join(' · ');
-                const label = `${toTime(s.start)}–${toTime(s.end)} · ${b.customer_name} · ${zones}`;
+                // Allergies ride along as a ⚠ by the name, spelled out in the tooltip.
+                const allergies = b.allergies || b.known_allergies;
+                const label = `${toTime(s.start)}–${toTime(s.end)} · ${b.customer_name} · ${zones}${allergies ? ` · ⚠ ${T.allergiesLabel}: ${allergies}` : ''}`;
+                const warn = allergies ? <b style={{ color: 'var(--status-off)' }}>⚠ </b> : null;
                 return (
                   <button
                     key={b.id}
@@ -497,7 +500,7 @@ export default function DayTimeline({
                         rather than a time range cut off after the first. */}
                     {(s.end - s.start) * PX_PER_MIN < 34 ? (
                       <span style={{ fontSize: 11.5, whiteSpace: 'nowrap', lineHeight: 1.2, textDecoration: cancelled ? 'line-through' : 'none' }}>
-                        <b style={{ fontVariantNumeric: 'tabular-nums' }}>{toTime(s.start)}</b> · {b.customer_name}
+                        <b style={{ fontVariantNumeric: 'tabular-nums' }}>{toTime(s.start)}</b> · {warn}{b.customer_name}
                       </span>
                     ) : (
                       <>
@@ -507,7 +510,7 @@ export default function DayTimeline({
                           {b.status === 'no_show' && ` · ${T.statusNoShow}`}
                           {cancelled && ` · ${T.statusCancelled}`}
                         </span>
-                        <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', textDecoration: cancelled ? 'line-through' : 'none' }}>{b.customer_name}</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', textDecoration: cancelled ? 'line-through' : 'none' }}>{warn}{b.customer_name}</span>
                         <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{zones}</span>
                       </>
                     )}

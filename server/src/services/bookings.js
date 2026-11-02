@@ -46,10 +46,23 @@ export function bookingsQuery({
     ORDER BY ${orderBy}`;
 }
 
-export async function getBookingWithItems(masterId, id) {
-  const { rows } = await pool.query(bookingsQuery({ where: 'b.id = $2' }), [masterId, id]);
+export async function getBookingWithItems(masterId, id, { extraFields = '' } = {}) {
+  const { rows } = await pool.query(bookingsQuery({ where: 'b.id = $2', extraFields }), [masterId, id]);
   return rows[0] || null;
 }
+
+// What only the master's own screens read, added to a query with
+// `extraFields`. Never part of BOOKING_FIELDS: those also answer a guest's
+// phone lookup, and a client's allergies aren't for whoever knows their phone.
+// `known_allergies` is what the client's latest other booking in the
+// organization that mentions any says — so a visit the client booked
+// themselves, or one taken without a note, still warns whoever treats them,
+// and the booking form can offer it.
+export const ADMIN_FIELDS = `b.allergies,
+       (SELECT p.allergies FROM bookings p
+         WHERE p.organization_id = b.organization_id AND p.customer_phone = b.customer_phone
+           AND p.allergies IS NOT NULL AND p.id <> b.id
+         ORDER BY p.start_time DESC, p.id DESC LIMIT 1) AS known_allergies`;
 
 // The guest-notification columns ride along only here, never in the lists the
 // admin panel and the phone lookup read: `guest_token` is what proves a request
@@ -160,7 +173,7 @@ export async function insertBookingWithItems(
   master,
   {
     startTime, endTime, customerName, customerPhone, status, totalPrice, items,
-    requestKey, guestToken, guestLang,
+    requestKey, guestToken, guestLang, allergies,
   }
 ) {
   const { rows } = await client.query(
@@ -168,12 +181,13 @@ export async function insertBookingWithItems(
     // refuses to assign it to the booking_status enum column.
     `INSERT INTO bookings (master_id, organization_id, start_time, end_time, customer_name,
                            customer_phone, status, price_at_booking, request_key, guest_token,
-                           guest_lang)
-     VALUES ($1, $11, $2, $3, $4, $5, COALESCE($6::booking_status, 'confirmed'), $7, $8, $9, $10)
+                           guest_lang, allergies)
+     VALUES ($1, $11, $2, $3, $4, $5, COALESCE($6::booking_status, 'confirmed'), $7, $8, $9, $10, $12)
      RETURNING id`,
     [
       master.id, startTime, endTime, customerName, customerPhone, status ?? null, totalPrice,
       requestKey ?? null, guestToken ?? null, guestLang ?? null, master.organization_id,
+      allergies ?? null,
     ]
   );
   const bookingId = rows[0].id;

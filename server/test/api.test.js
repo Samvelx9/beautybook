@@ -118,8 +118,9 @@ async function call(method, url, { token, slug, body, headers = {} } = {}) {
   return { status: res.status, body: json };
 }
 
-async function signup(slug, extra = {}) {
+async function signup(slug, extra = {}, headers = {}) {
   const res = await call('POST', '/auth/signup', {
+    headers,
     body: {
       email: `${slug}@example.com`,
       password: 'correct horse battery',
@@ -1716,4 +1717,74 @@ test("each of a salon's masters has a colour: automatic and distinct, or the own
 
   const automatic = await call('PATCH', `/salon/masters/${b.id}`, { token: owner, body: { color: null } });
   assert.deepEqual([automatic.body.color, automatic.body.colorChosen], ['orange', false]);
+});
+
+test('the booking form finds earlier clients and carries their allergies to the next visit', async () => {
+  const token = await signup('allergo', {}, { 'X-Real-IP': '198.51.100.21' });
+  const zone = await makeZone(token);
+  const first = await call('POST', '/admin/bookings', {
+    token,
+    body: {
+      date, time: '10:00', customerName: 'Ани Петросян', customerPhone: '+374 91 123456',
+      items: [{ serviceId: zone.serviceId }], allergies: '  Латекс ',
+    },
+  });
+  assert.equal(first.status, 201, JSON.stringify(first.body));
+  assert.equal(first.body.allergies, 'Латекс');
+
+  // Found by any part of the name, in any case, or by the phone's digits however it was written.
+  for (const q of ['ани', 'ПЕТРО', '91123', '374-91']) {
+    const found = await call('GET', `/admin/clients?q=${encodeURIComponent(q)}`, { token });
+    assert.deepEqual(found.body, [{ phone: '+374 91 123456', name: 'Ани Петросян', allergies: 'Латекс', visits: 0 }], q);
+  }
+  // Too short, a LIKE wildcard, or someone else's client: nothing.
+  assert.deepEqual((await call('GET', '/admin/clients?q=%D0%B0', { token })).body, []);
+  assert.deepEqual((await call('GET', '/admin/clients?q=%25%25', { token })).body, []);
+  assert.deepEqual((await call('GET', '/admin/clients?q=ани', { token: tokenB })).body, []);
+
+  // She books herself next time: no allergies on it, but the master still sees hers.
+  const next = await call('POST', '/bookings', {
+    slug: 'allergo',
+    headers: { 'X-Real-IP': '198.51.100.21' },
+    body: { date, time: '12:00', customerName: 'Ани', customerPhone: '+374 91 123456', items: [{ serviceId: zone.serviceId }] },
+  });
+  assert.equal(next.status, 201, JSON.stringify(next.body));
+  const listed = (await call('GET', '/admin/bookings', { token })).body.find((b) => b.id === next.body.id);
+  assert.deepEqual([listed.allergies, listed.known_allergies], [null, 'Латекс']);
+  // A later booking saved without a note doesn't hide it either.
+  assert.equal((await call('PATCH', `/admin/bookings/${next.body.id}`, { token, body: { allergies: '' } })).status, 200);
+  assert.equal((await call('GET', '/admin/clients?q=ани', { token })).body[0].allergies, 'Латекс');
+  // Her latest name is the one suggested.
+  assert.equal((await call('GET', '/admin/clients?q=ани', { token })).body[0].name, 'Ани');
+
+  // Never to a guest, who only needs her phone number to look her bookings up.
+  const lookup = await call('POST', '/bookings/lookup', {
+    slug: 'allergo', headers: { 'X-Real-IP': '198.51.100.21' }, body: { phone: '+374 91 123456' },
+  });
+  assert.equal(lookup.status, 200);
+  assert.ok(lookup.body.length > 0);
+  assert.ok(!JSON.stringify(lookup.body).includes('Латекс'));
+  assert.ok(!JSON.stringify(next.body).includes('Латекс'));
+});
+
+test("a salon's owner finds every master's clients; a master only their own", async () => {
+  const owner = await login('lotus@salon.example', 'correct horse battery');
+  const { body: lotus } = await call('GET', '/salon', { token: owner });
+  const [a, b] = lotus.masters;
+  const visit = await call('POST', `/salon/masters/${a.id}/bookings`, {
+    token: owner,
+    body: {
+      date, time: '17:00', customerName: 'Lusine Allergic', customerPhone: '+37455000777',
+      items: [{ serviceId: a.serviceIds[0] }], allergies: 'Penicillin',
+    },
+  });
+  assert.equal(visit.status, 201, JSON.stringify(visit.body));
+  assert.equal(visit.body.allergies, 'Penicillin');
+  const listed = (await call('GET', `/salon/bookings?masterId=${a.id}`, { token: owner })).body;
+  assert.equal(listed.find((x) => x.id === visit.body.id).allergies, 'Penicillin');
+
+  const { rows } = await db.query(`SELECT email FROM users WHERE master_id = $1`, [b.id]);
+  const masterB = await login(rows[0].email, 'correct horse battery');
+  assert.equal((await call('GET', '/admin/clients?q=lusine', { token: owner })).body[0]?.allergies, 'Penicillin');
+  assert.deepEqual((await call('GET', '/admin/clients?q=lusine', { token: masterB })).body, []);
 });

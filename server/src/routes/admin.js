@@ -862,14 +862,15 @@ adminRouter.delete('/expenses/:id', asyncHandler(async (req, res) => {
 
 // Whose records an export covers: a salon's master their own; the owner the
 // whole organization, or one master with ?masterId. Returns the SQL condition
-// on `b` and its parameters (starting at $1), or { error }.
-function exportScope(req) {
+// on `b` and its parameters (starting at $1), or { error }. `masterIdParam`
+// null always means the whole organization for the owner.
+function exportScope(req, masterIdParam = req.query.masterId) {
   if (req.user.role !== 'owner') {
     if (!req.master) return { error: 'no_master' };
     return { where: 'b.master_id = $1', params: [req.master.id] };
   }
-  if (req.query.masterId !== undefined) {
-    const masterId = Number(req.query.masterId);
+  if (masterIdParam != null) {
+    const masterId = Number(masterIdParam);
     if (!Number.isInteger(masterId)) return { error: 'invalid_master_id' };
     return { where: 'b.organization_id = $1 AND b.master_id = $2', params: [req.organization.id, masterId] };
   }
@@ -946,6 +947,39 @@ adminRouter.get('/export/clients.csv', asyncHandler(async (req, res) => {
       req.organization.currency,
     ])
   );
+}));
+
+// GET /api/admin/clients?q — up to 8 earlier clients whose name (any they
+// booked under) or phone matches, for the booking form to fill in: their
+// latest name, their phone, and the allergies their latest booking that
+// mentions any gave. The same people the clients export covers — a salon's
+// master their own, the owner the whole organization — most recent first.
+adminRouter.get('/clients', asyncHandler(async (req, res) => {
+  const scope = exportScope(req, null);
+  if (scope.error) return res.status(400).json({ error: scope.error });
+  const q = cleanString(req.query.q, 50);
+  if (q.length < 2) return res.json([]);
+  const n = scope.params.length;
+  // Typed as a name, matched anywhere in one; typed as digits, anywhere in the
+  // phone however it was written (spaces, dashes, a leading +).
+  const pattern = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  const digits = q.replace(/\D/g, '');
+  const { rows } = await pool.query(
+    `SELECT b.customer_phone AS phone,
+            (array_agg(b.customer_name ORDER BY b.start_time DESC, b.id DESC))[1] AS name,
+            (array_agg(b.allergies ORDER BY b.start_time DESC, b.id DESC)
+               FILTER (WHERE b.allergies IS NOT NULL))[1] AS allergies,
+            COUNT(*) FILTER (WHERE b.status = 'completed')::int AS visits
+     FROM bookings b
+     WHERE ${scope.where}
+     GROUP BY b.customer_phone
+     HAVING bool_or(b.customer_name ILIKE $${n + 1})
+         OR ($${n + 2} <> '' AND regexp_replace(b.customer_phone, '\\D', '', 'g') LIKE '%' || $${n + 2} || '%')
+     ORDER BY MAX(b.start_time) DESC
+     LIMIT 8`,
+    [...scope.params, pattern, digits.length >= 3 ? digits : '']
+  );
+  res.json(rows);
 }));
 
 // ---------------------------------------------------------------------------

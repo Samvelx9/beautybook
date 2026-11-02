@@ -6,7 +6,7 @@ import { asyncHandler } from '../lib/asyncHandler.js';
 import { cleanString, isValidDate } from '../lib/validate.js';
 import { todayDateStr, addDaysToDateStr, localToUtc, isValidTimeZone } from '../lib/time.js';
 import { requireAccount, requireOwner } from '../middleware/auth.js';
-import { bookingsQuery } from '../services/bookings.js';
+import { bookingsQuery, ADMIN_FIELDS } from '../services/bookings.js';
 import {
   accessSummary,
   createMaster,
@@ -451,7 +451,7 @@ salonRouter.get('/bookings', asyncHandler(async (req, res) => {
   }
 
   const { rows } = await pool.query(
-    bookingsQuery({ scope: 'organization', where, extraFields: 'b.master_id' }),
+    bookingsQuery({ scope: 'organization', where, extraFields: `b.master_id, ${ADMIN_FIELDS}` }),
     params
   );
   res.json(rows);

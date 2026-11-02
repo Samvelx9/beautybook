@@ -67,6 +67,10 @@ const EMPTY_BOOKING_FORM = {
   time: '10:00',
   customerName: '',
   customerPhone: '',
+  allergies: '',
+  // What the client's earlier visits recorded, offered when `allergies` is
+  // blank or says something else.
+  knownAllergies: '',
   status: 'confirmed',
   // A salon's owner chooses the master (and can hand a visit to another).
   masterId: '',
@@ -405,6 +409,8 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
       time,
       customerName: booking.customer_name,
       customerPhone: booking.customer_phone,
+      allergies: booking.allergies ?? '',
+      knownAllergies: booking.known_allergies ?? '',
       status: booking.status,
       masterId: String(booking.master_id ?? calendarMaster?.id ?? ''),
     });
@@ -428,6 +434,7 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
       time: bookingForm.time,
       customerName: bookingForm.customerName.trim(),
       customerPhone: bookingForm.customerPhone.trim(),
+      allergies: bookingForm.allergies.trim(),
       status: bookingForm.status,
     };
     if (
@@ -993,6 +1000,7 @@ function BookingRow({ T, lang, booking, showDate, masterName, masterColorKey, se
             )}
             {booking.customer_name} · {booking.customer_phone} · {formatPrice(booking.price_at_booking, lang)}
           </span>
+          <AllergyNote T={T} booking={booking} />
         </div>
       </div>
       {confirmingCancel ? (
@@ -1060,6 +1068,17 @@ function BookingForm({ T, lang, title, form, setForm, services, categories, mast
     setForm({
       ...form,
       items: form.items.map((i) => (i.serviceId === serviceId ? { ...i, durationMinutes: minutes } : i)),
+    });
+
+  // A client picked from the suggestions brings their phone and name, and
+  // their allergies unless some are already written in.
+  const pickClient = (client) =>
+    setForm({
+      ...form,
+      customerName: client.name,
+      customerPhone: client.phone,
+      allergies: form.allergies.trim() ? form.allergies : client.allergies ?? '',
+      knownAllergies: client.allergies ?? '',
     });
 
   const totals = form.items.reduce(
@@ -1199,15 +1218,22 @@ function BookingForm({ T, lang, title, form, setForm, services, categories, mast
         )}
         <Field label={T.dateLabel} type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
         <Field label={T.timeLabel} type="time" value={form.time} onChange={(v) => setForm({ ...form, time: v })} />
-        <Field
+        <ClientField
+          T={T}
+          lang={lang}
           label={T.customerNameLabel}
           value={form.customerName}
           onChange={(v) => setForm({ ...form, customerName: v })}
+          onPick={pickClient}
         />
-        <Field
+        <ClientField
+          T={T}
+          lang={lang}
           label={T.customerPhoneLabel}
+          type="tel"
           value={form.customerPhone}
           onChange={(v) => setForm({ ...form, customerPhone: v })}
+          onPick={pickClient}
         />
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 12, color: 'var(--muted)' }}>{T.bookingStatusLabel}</span>
@@ -1224,6 +1250,7 @@ function BookingForm({ T, lang, title, form, setForm, services, categories, mast
           </select>
         </label>
       </div>
+      <AllergiesField T={T} form={form} setForm={setForm} />
       <div style={{ display: 'flex', gap: 10 }}>
         <button className="btn-primary" onClick={onSave} disabled={saving}>
           {T.saveBtn}
@@ -1241,6 +1268,196 @@ function Field({ label, value, onChange, type = 'text' }) {
     <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <span style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</span>
       <input className="field-input" type={type} value={value} onChange={(e) => onChange(e.target.value)} />
+    </label>
+  );
+}
+
+// A client's allergies on a booking in the list: what this booking says, or
+// else what an earlier visit recorded (the client may have booked this one
+// themselves). Red either way — it's what whoever treats them must not miss.
+function AllergyNote({ T, booking }) {
+  const text = booking.allergies || booking.known_allergies;
+  if (!text) return null;
+  return (
+    <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--status-off)' }}>
+      ⚠ {booking.allergies ? T.allergiesLabel : T.allergiesEarlierLabel}: {text}
+    </span>
+  );
+}
+
+// The client's name or phone, suggesting earlier clients as it's typed: picking
+// one fills in the rest. Suggestions only follow typing, so opening a booking
+// to edit doesn't throw a list over the form.
+const SUGGEST_AFTER_MS = 250;
+
+function ClientField({ T, lang, label, value, onChange, onPick, type = 'text' }) {
+  const [typed, setTyped] = useState(null);
+  const [matches, setMatches] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const listId = `client-suggestions-${label.replace(/\W+/g, '-')}`;
+
+  useEffect(() => {
+    const q = typed?.trim() ?? '';
+    if (q.length < 2) {
+      setMatches([]);
+      return undefined;
+    }
+    let stale = false;
+    const timer = setTimeout(() => {
+      api
+        .searchClients(q)
+        .then((rows) => {
+          if (stale) return;
+          setMatches(rows);
+          setActive(-1);
+        })
+        .catch(() => !stale && setMatches([]));
+    }, SUGGEST_AFTER_MS);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [typed]);
+
+  const choose = (client) => {
+    onPick(client);
+    setTyped(null);
+    setMatches([]);
+    setOpen(false);
+  };
+  const shown = open && matches.length > 0;
+
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 6, position: 'relative' }}>
+      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</span>
+      <input
+        className="field-input"
+        type={type}
+        value={value}
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={shown}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        onChange={(e) => {
+          onChange(e.target.value);
+          setTyped(e.target.value);
+          setOpen(true);
+        }}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => {
+          if (!shown) return;
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setActive((i) => (i + 1) % matches.length);
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setActive((i) => (i <= 0 ? matches.length - 1 : i - 1));
+          } else if (e.key === 'Enter' && active >= 0) {
+            e.preventDefault();
+            choose(matches[active]);
+          } else if (e.key === 'Escape') {
+            setOpen(false);
+          }
+        }}
+      />
+      {shown && (
+        <ul
+          id={listId}
+          role="listbox"
+          aria-label={T.clientSuggestionsLabel}
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            zIndex: 20,
+            marginTop: 4,
+            padding: 4,
+            listStyle: 'none',
+            background: 'var(--white)',
+            border: '1px solid var(--line)',
+            borderRadius: 10,
+            boxShadow: '0 8px 24px oklch(27% 0.02 90 / 0.14)',
+            maxHeight: 280,
+            overflowY: 'auto',
+          }}
+        >
+          {matches.map((client, i) => (
+            <li
+              key={client.phone}
+              role="option"
+              aria-selected={i === active}
+              // Before the input's blur closes the list.
+              onMouseDown={(e) => {
+                e.preventDefault();
+                choose(client);
+              }}
+              onMouseEnter={() => setActive(i)}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
+                padding: '7px 10px',
+                borderRadius: 7,
+                cursor: 'pointer',
+                background: i === active ? 'var(--sage-light)' : 'transparent',
+              }}
+            >
+              <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' }}>{client.name}</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {client.phone}
+                {client.visits > 0 && ` · ${client.visits} ${pluralize(client.visits, lang, 'visits')}`}
+              </span>
+              {client.allergies && (
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--status-off)' }}>
+                  ⚠ {client.allergies}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </label>
+  );
+}
+
+// What the client is allergic to. When their earlier visits recorded something
+// this booking doesn't say, it's offered to fill in with one tap.
+function AllergiesField({ T, form, setForm }) {
+  const known = form.knownAllergies?.trim() ?? '';
+  const current = form.allergies.trim();
+  const offer = known && current !== known;
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{T.allergiesLabel}</span>
+      <input
+        className="field-input"
+        value={form.allergies}
+        maxLength={500}
+        placeholder={T.allergiesPlaceholder}
+        onChange={(e) => setForm({ ...form, allergies: e.target.value })}
+        style={current ? { borderColor: 'var(--status-off)', color: 'var(--status-off)', fontWeight: 600 } : undefined}
+      />
+      {offer && (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5 }}>
+          <span style={{ color: 'var(--status-off)', fontWeight: 600 }}>
+            ⚠ {T.allergiesEarlierLabel}: {known}
+          </span>
+          <button
+            type="button"
+            className="btn-outline"
+            style={{ padding: '3px 10px', fontSize: 12 }}
+            onClick={() => setForm({ ...form, allergies: known })}
+          >
+            {T.useAllergiesBtn}
+          </button>
+        </span>
+      )}
+      {known && current === known && (
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{T.allergiesFilledHint}</span>
+      )}
     </label>
   );
 }

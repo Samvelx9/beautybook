@@ -171,6 +171,8 @@ export const api = {
   // master with masterId).
   exportBookings: ({ from, to, masterId } = {}) =>
     download(`/admin/export/bookings.csv${query({ from, to, masterId })}`, `bookings-${from}-${to}.csv`),
+  // Earlier clients matching a name or phone, for the booking form to fill in.
+  searchClients: (q) => request(`/admin/clients${query({ q })}`),
   exportClients: ({ masterId } = {}) => download(`/admin/export/clients.csv${query({ masterId })}`, 'clients.csv'),
 
   getFinancials: ({ from, to, masterId } = {}) => request(`/admin/financials${query({ from, to, masterId })}`),

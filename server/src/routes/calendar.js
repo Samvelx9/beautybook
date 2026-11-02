@@ -9,6 +9,7 @@ import {
   resolveItems,
   insertBookingWithItems,
   replaceItems,
+  ADMIN_FIELDS,
 } from '../services/bookings.js';
 import { masterProfile } from '../services/profile.js';
 import { profileRouter } from './profileRoutes.js';
@@ -27,6 +28,11 @@ export const calendarRouter = Router({ mergeParams: true });
 const CHECK_VIOLATION = '23514';
 const EXCLUSION_VIOLATION = '23P01';
 const BOOKING_STATUSES = ['confirmed', 'completed', 'cancelled', 'no_show'];
+
+// What a master notes about a client's allergies: blank is no note, so a
+// booking taken without one never hides what an earlier visit recorded.
+const readAllergies = (value) => cleanString(value, 500) || null;
+const adminBooking = (masterId, id) => getBookingWithItems(masterId, id, { extraFields: ADMIN_FIELDS });
 
 const idParam = (req) => {
   const id = Number(req.params.id);
@@ -256,7 +262,7 @@ calendarRouter.get('/bookings', asyncHandler(async (req, res) => {
     where += ' AND b.status = $4';
   }
 
-  const { rows } = await pool.query(bookingsQuery({ where }), params);
+  const { rows } = await pool.query(bookingsQuery({ where, extraFields: ADMIN_FIELDS }), params);
   res.json(rows);
 }));
 
@@ -308,9 +314,10 @@ calendarRouter.post('/bookings', asyncHandler(async (req, res) => {
       status,
       totalPrice: resolved.totalPrice,
       items: resolved.items,
+      allergies: readAllergies(req.body?.allergies),
     });
     await client.query('COMMIT');
-    res.status(201).json(await getBookingWithItems(master.id, bookingId));
+    res.status(201).json(await adminBooking(master.id, bookingId));
   } catch (err) {
     await client.query('ROLLBACK');
     if (err.code === EXCLUSION_VIOLATION) return res.status(409).json({ error: 'slot_taken' });
@@ -354,6 +361,7 @@ calendarRouter.patch('/bookings/:id', asyncHandler(async (req, res) => {
     }
     set('status', req.body.status);
   }
+  if (req.body?.allergies !== undefined) set('allergies', readAllergies(req.body.allergies));
 
   // A salon's owner may hand the visit to another of the salon's masters
   // (`masterId`). The database still refuses it if that master is busy then.
@@ -433,7 +441,7 @@ calendarRouter.patch('/bookings/:id', asyncHandler(async (req, res) => {
     client.release();
   }
 
-  const updated = await getBookingWithItems(target.id, id);
+  const updated = await adminBooking(target.id, id);
   res.json(updated);
   tellGuestAboutChange(existing, updated);
 }));
