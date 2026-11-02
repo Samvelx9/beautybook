@@ -1,6 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,500&family=Karla:wght@400;500;600;700&display=swap');
 
 :root {
+  /* The side gutter of every row of the admin: narrow on phones, roomier on laptops. */
+  --gutter: clamp(14px, 3vw, 40px);
   --bg: oklch(97% 0.015 85);
   --surface: oklch(99% 0.008 85);
   --ink: oklch(27% 0.02 90);
@@ -148,10 +150,29 @@ table {
 
 .admin-content {
   width: 100%;
-  max-width: 1080px;
+  /* Wide enough for a laptop to show the week, every master's column and the
+     client list without sideways scrolling; side gutters shrink on phones. */
+  max-width: 1440px;
   margin: 0 auto;
-  padding: 20px 20px 60px;
+  padding: 20px var(--gutter) 60px;
   flex: 1;
+}
+
+/* The Clients screen: a table where there's room for one, cards on phones. */
+.clients-cards,
+.clients-sort-phone {
+  display: none;
+}
+@media (max-width: 760px) {
+  .clients-table {
+    display: none;
+  }
+  .clients-cards {
+    display: flex;
+  }
+  .clients-sort-phone {
+    display: flex;
+  }
 }
 
 /* Every button answers the moment it's pressed, not when the pointer lifts. */

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useBookingFlow } from './useBookingFlow.js';
+import { useMediaQuery } from './lib/useMediaQuery.js';
 import LandingScreen from './components/LandingScreen.jsx';
 import ServicesScreen from './components/ServicesScreen.jsx';
 import CalendarScreen from './components/CalendarScreen.jsx';
@@ -28,8 +29,13 @@ const SCREENS = {
   cancelled: CancelledScreen,
 };
 
+// Wide enough for the master's page and the booking side by side (index.css,
+// .guest-wide): laptops and desktops. Phones and tablets get one column.
+const WIDE_QUERY = '(min-width: 1024px)';
+
 export default function App() {
   const flow = useBookingFlow();
+  const wide = useMediaQuery(WIDE_QUERY);
 
   // Screen readers pick a voice, and browsers decide whether to offer
   // translation, from <html lang> — so it follows the language on screen
@@ -49,9 +55,20 @@ export default function App() {
     );
   }
 
-  return (
+  // On a laptop, who the master is stays on the left throughout, and the
+  // booking column's first screen is just the treatments.
+  const shell = (
     <div className="app-shell">
-      <Screen {...flow} />
+      <Screen {...flow} part={wide && Screen === LandingScreen ? 'book' : undefined} />
+    </div>
+  );
+  if (!wide) return shell;
+  return (
+    <div className="guest-wide">
+      <aside className="guest-side">
+        <LandingScreen {...flow} part="info" />
+      </aside>
+      {shell}
     </div>
   );
 }

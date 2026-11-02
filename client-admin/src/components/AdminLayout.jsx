@@ -52,7 +52,7 @@ function AccessBanner({ T, access, isOwner, onOpen }) {
     <div style={{ background: urgent ? 'var(--terracotta-light)' : 'var(--sage-light)', borderBottom: '1px solid var(--line)' }}>
       <div
         className="admin-content"
-        style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}
+        style={{ padding: '10px var(--gutter)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}
       >
         <span style={{ fontSize: 13.5 }}>{text}</span>
         {isOwner && access.state !== 'suspended' && (
@@ -73,7 +73,7 @@ export default function AdminLayout({ T, lang, setLang, tabs, tab, setTab, onLog
       <div style={{ borderBottom: '1px solid var(--line)', background: 'var(--white)' }}>
         <div
           className="admin-content"
-          style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
+          style={{ padding: '16px var(--gutter)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <h2 style={{ fontSize: 18, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -115,7 +115,7 @@ export default function AdminLayout({ T, lang, setLang, tabs, tab, setTab, onLog
       {/* The tabs stay in reach on long screens (dashboard, home page) instead
           of scrolling away; content passes underneath the frosted bar. */}
       <div className="tab-bar">
-        <div className="admin-content" style={{ padding: 0, display: 'flex', gap: 4, overflowX: 'auto' }}>
+        <div className="admin-content" style={{ padding: '0 max(0px, calc(var(--gutter) - 16px))', display: 'flex', gap: 4, overflowX: 'auto' }}>
           {tabs.map((t) => (
             <button
               key={t}

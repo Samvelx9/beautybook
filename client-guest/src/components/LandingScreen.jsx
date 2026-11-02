@@ -36,6 +36,12 @@ const hhmm = (time) => (time ? time.slice(0, 5) : '');
 export default function LandingScreen(f) {
   const { T, lang, site, profile, categories, hours, servicesLoading, catalogueError, selectCategory, goToLookup } = f;
   const treatmentsRef = useRef(null);
+  // On a laptop the page comes in two parts side by side (App.jsx): 'info',
+  // who the master is, and 'book', the treatments to start a booking from.
+  // A phone shows both, one after the other.
+  const part = f.part ?? 'all';
+  const info = part !== 'book';
+  const book = part !== 'info';
 
   // Any of the master's languages will do when the one being read is blank.
   const localized = (key) => localName(profile, lang, key).trim();
@@ -77,8 +83,33 @@ export default function LandingScreen(f) {
   return (
     <>
     <div className="scrollarea" style={{ flex: 1, overflowY: 'auto' }}>
+      {/* The booking column beside the info: no hero, just the language and
+          the way to an existing booking. */}
+      {part === 'book' && (
+        <div style={{ padding: '18px 24px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <a
+            href="#"
+            className="hit-expand"
+            onClick={(e) => {
+              e.preventDefault();
+              goToLookup();
+            }}
+            style={{ fontSize: rem(13), fontWeight: 600 }}
+          >
+            {T.manageLink}
+          </a>
+          <LangSwitcher
+            lang={f.lang}
+            langMenuOpen={f.langMenuOpen}
+            toggleLangMenu={f.toggleLangMenu}
+            setLang={f.setLang}
+            bg="var(--white)"
+          />
+        </div>
+      )}
+
       {/* ---------------------------------------------------------------- hero */}
-      <div style={{ position: 'relative', padding: '20px 24px 32px', overflow: 'visible' }}>
+      {info && <div style={{ position: 'relative', padding: '20px 24px 32px', overflow: 'visible' }}>
         <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
           <div
             style={{
@@ -109,13 +140,15 @@ export default function LandingScreen(f) {
               {ownerName}
             </span>
           </div>
-          <LangSwitcher
-            lang={f.lang}
-            langMenuOpen={f.langMenuOpen}
-            toggleLangMenu={f.toggleLangMenu}
-            setLang={f.setLang}
-            bg="var(--white)"
-          />
+          {book && (
+            <LangSwitcher
+              lang={f.lang}
+              langMenuOpen={f.langMenuOpen}
+              toggleLangMenu={f.toggleLangMenu}
+              setLang={f.setLang}
+              bg="var(--white)"
+            />
+          )}
         </div>
 
         <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 26 }}>
@@ -133,7 +166,7 @@ export default function LandingScreen(f) {
               {contacts.length > 0 ? T.pageClosed : T.pageClosedNoContacts}
             </p>
           )}
-          {open && <button
+          {open && book && <button
             onClick={scrollToTreatments}
             style={{
               marginTop: 22,
@@ -148,22 +181,24 @@ export default function LandingScreen(f) {
           >
             {T.bookAppointment}
           </button>}
-          <a
-            href="#"
-            className="hit-expand"
-            onClick={(e) => {
-              e.preventDefault();
-              goToLookup();
-            }}
-            style={{ marginTop: 14, fontSize: rem(12.5), fontWeight: 600 }}
-          >
-            {T.manageLink}
-          </a>
+          {book && (
+            <a
+              href="#"
+              className="hit-expand"
+              onClick={(e) => {
+                e.preventDefault();
+                goToLookup();
+              }}
+              style={{ marginTop: 14, fontSize: rem(12.5), fontWeight: 600 }}
+            >
+              {T.manageLink}
+            </a>
+          )}
         </div>
-      </div>
+      </div>}
 
       {/* --------------------------------------------------------------- about */}
-      {about && (
+      {info && about && (
         <Section title={f.isSalon ? T.aboutUs : T.aboutMe}>
           <p style={{ margin: 0, fontSize: rem(14.5), lineHeight: 1.75, color: 'var(--ink)', whiteSpace: 'pre-line' }}>
             {about}
@@ -172,7 +207,7 @@ export default function LandingScreen(f) {
       )}
 
       {/* ------------------------------------------------- a salon's masters */}
-      {f.isSalon && f.site.masters.length > 0 && (
+      {info && f.isSalon && f.site.masters.length > 0 && (
         <Section title={T.ourMasters}>
           <div style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 4 }}>
             {f.site.masters.map((m) => {
@@ -189,7 +224,7 @@ export default function LandingScreen(f) {
       )}
 
       {/* ---------------------------------------------------------- treatments */}
-      {open && <div ref={treatmentsRef} style={{ scrollMarginTop: 12 }}>
+      {open && book && <div ref={treatmentsRef} style={{ scrollMarginTop: 12 }}>
         <Section title={T.chooseTreatment} caption={T.chooseTreatmentCaption}>
           {servicesLoading && <span style={{ fontSize: rem(14), color: 'var(--muted)' }}>{T.loading}</span>}
           {catalogueError && (
@@ -210,7 +245,7 @@ export default function LandingScreen(f) {
       </div>}
 
       {/* ------------------------------------------------------------ contacts */}
-      {contacts.length > 0 && (
+      {info && contacts.length > 0 && (
         <Section title={T.getInTouch}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {contacts.map(({ key, Icon, label, value, href }) => (
@@ -260,7 +295,7 @@ export default function LandingScreen(f) {
       )}
 
       {/* ----------------------------------------------------- address & hours */}
-      {(address || openDays.length > 0) && (
+      {info && (address || openDays.length > 0) && (
         <Section title={f.isSalon ? T.whereToFindUs : T.whereToFindMe}>
           {address && (
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
@@ -342,7 +377,7 @@ export default function LandingScreen(f) {
 
       {/* The platform credit, and its privacy policy — this page collects
           clients' names and phone numbers, so the policy is one tap away. */}
-      <div style={{ padding: '8px 24px 32px', display: 'flex', justifyContent: 'center', gap: 16, flexWrap: 'wrap' }}>
+      {info && <div style={{ padding: '8px 24px 32px', display: 'flex', justifyContent: 'center', gap: 16, flexWrap: 'wrap' }}>
         <a
           href={`https://app.${PLATFORM_DOMAIN}/`}
           target="_blank"
@@ -361,9 +396,9 @@ export default function LandingScreen(f) {
         >
           {T.privacyLink}
         </a>
-      </div>
+      </div>}
     </div>
-    {f.basket.zones.length > 0 && (
+    {book && f.basket.zones.length > 0 && (
       <BasketBar T={T} lang={lang} basket={f.basket} onContinue={f.continueToCalendar} />
     )}
     </>

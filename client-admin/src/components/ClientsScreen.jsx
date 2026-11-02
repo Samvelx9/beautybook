@@ -81,11 +81,14 @@ export default function ClientsScreen({ T, lang, onAuthError, salon, onBookClien
   };
   const columns = COLUMNS.filter((c) => !c.salonOnly || masters.length > 1);
 
-  const sortBy = (key) => {
-    const column = COLUMNS.find((c) => c.key === key);
-    const dir = sort.key === key ? (sort.dir === 'asc' ? 'desc' : 'asc') : column.firstDir ?? 'asc';
+  const applySort = (key, dir) => {
     setSort({ key, dir });
     setRouteParams({ sort: key, dir });
+  };
+  // A column's header: sorts by it, or turns it round if it's the sort already.
+  const sortBy = (key) => {
+    const column = COLUMNS.find((c) => c.key === key);
+    applySort(key, sort.key === key ? (sort.dir === 'asc' ? 'desc' : 'asc') : column.firstDir ?? 'asc');
   };
 
   const shown = useMemo(() => {
@@ -131,6 +134,32 @@ export default function ClientsScreen({ T, lang, onAuthError, salon, onBookClien
           aria-label={T.clientsSearchPlaceholder}
           style={{ maxWidth: 360, flex: '1 1 240px' }}
         />
+        {/* On a phone there are no column headers to tap: the sort is picked here. */}
+        <div className="clients-sort-phone" style={{ alignItems: 'center', gap: 8, flex: '1 1 100%' }}>
+          <select
+            className="field-input"
+            value={sort.key}
+            aria-label={T.clientsSortBy}
+            onChange={(e) => applySort(e.target.value, COLUMNS.find((c) => c.key === e.target.value).firstDir ?? 'asc')}
+            style={{ flex: 1 }}
+          >
+            {columns.map((col) => (
+              <option key={col.key} value={col.key}>
+                {T.clientsSortBy}: {T[col.label]}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="btn-outline"
+            onClick={() => applySort(sort.key, sort.dir === 'asc' ? 'desc' : 'asc')}
+            aria-label={sort.dir === 'asc' ? T.sortAscending : T.sortDescending}
+            title={sort.dir === 'asc' ? T.sortAscending : T.sortDescending}
+            style={{ flexShrink: 0, padding: '8px 14px' }}
+          >
+            {sort.dir === 'asc' ? '▲' : '▼'}
+          </button>
+        </div>
         {clients && (
           <span style={muted}>
             {shown.length} {pluralize(shown.length, lang, 'clients')}
@@ -147,7 +176,21 @@ export default function ClientsScreen({ T, lang, onAuthError, salon, onBookClien
       ) : shown.length === 0 ? (
         <p className="card" style={muted}>{T.noClientsMatch}</p>
       ) : (
-        <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
+        <>
+        <ul className="clients-cards" style={{ flexDirection: 'column', gap: 10, margin: 0, padding: 0 }}>
+          {shown.map((c) => (
+            <ClientCard
+              key={c.phone}
+              T={T}
+              lang={lang}
+              client={c}
+              columns={columns}
+              master={masterOf(c.usual_master_id)}
+              onBook={() => onBookClient(c)}
+            />
+          ))}
+        </ul>
+        <div className="card clients-table" style={{ padding: 0, overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr>
@@ -204,16 +247,18 @@ export default function ClientsScreen({ T, lang, onAuthError, salon, onBookClien
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );
 }
 
-function ClientRow({ T, lang, client: c, columns, master, onBook }) {
+// What each column shows for one client: the table's cells and the phone
+// cards are made of the same pieces.
+function clientCells({ T, lang, client: c, master }) {
   const others = c.names.filter((n) => n !== c.name);
-  const cell = { padding: '10px 8px', borderBottom: '1px solid var(--line)', verticalAlign: 'top' };
   const small = { display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 };
-  const content = {
+  return {
     name: (
       <>
         <strong style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{c.name}</strong>
@@ -266,6 +311,11 @@ function ClientRow({ T, lang, client: c, columns, master, onBook }) {
       <span style={{ color: 'var(--muted)' }}>—</span>
     ),
   };
+}
+
+function ClientRow({ T, lang, client: c, columns, master, onBook }) {
+  const cell = { padding: '10px 8px', borderBottom: '1px solid var(--line)', verticalAlign: 'top' };
+  const content = clientCells({ T, lang, client: c, master });
   return (
     <tr>
       {/* First, so it's in reach however far the table scrolls sideways. */}
@@ -280,6 +330,35 @@ function ClientRow({ T, lang, client: c, columns, master, onBook }) {
         </td>
       ))}
     </tr>
+  );
+}
+
+// The same client on a phone: name, phone and allergies first, the numbers
+// in two columns below, and "Book" in reach of a thumb.
+function ClientCard({ T, lang, client: c, columns, master, onBook }) {
+  const content = clientCells({ T, lang, client: c, master });
+  const details = columns.filter((col) => !['name', 'phone', 'allergies'].includes(col.key));
+  return (
+    <li className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 14, listStyle: 'none' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+        <div style={{ minWidth: 0, fontSize: 15 }}>
+          {content.name}
+          <div style={{ marginTop: 2, fontSize: 13.5 }}>{content.phone}</div>
+        </div>
+        <button className="btn-primary" style={{ flexShrink: 0, padding: '8px 16px' }} onClick={onBook}>
+          {T.bookClientBtn}
+        </button>
+      </div>
+      {c.allergies && <div style={{ fontSize: 13.5 }}>{content.allergies}</div>}
+      <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 14px', fontSize: 13.5 }}>
+        {details.map((col) => (
+          <div key={col.key} style={col.key === 'zones' ? { gridColumn: '1 / -1' } : undefined}>
+            <dt style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 2 }}>{T[col.label]}</dt>
+            <dd style={{ margin: 0 }}>{content[col.key]}</dd>
+          </div>
+        ))}
+      </dl>
+    </li>
   );
 }
 
