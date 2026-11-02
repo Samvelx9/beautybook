@@ -11,6 +11,7 @@ import PrivacyScreen from './components/PrivacyScreen.jsx';
 import AdminLayout from './components/AdminLayout.jsx';
 import DashboardScreen from './components/DashboardScreen.jsx';
 import BookingsScreen from './components/BookingsScreen.jsx';
+import ClientsScreen from './components/ClientsScreen.jsx';
 import ServicesScreen from './components/ServicesScreen.jsx';
 import AvailabilityScreen from './components/AvailabilityScreen.jsx';
 import ProfileScreen from './components/ProfileScreen.jsx';
@@ -25,6 +26,7 @@ import MasterPicker from './components/MasterPicker.jsx';
 const SCREENS = {
   dashboard: DashboardScreen,
   bookings: BookingsScreen,
+  clients: ClientsScreen,
   masters: MastersScreen,
   taxes: TaxesScreen,
   categories: CategoriesScreen,
@@ -86,6 +88,9 @@ export default function App() {
   const [salon, setSalon] = useState(null);
   // Whose calendar the owner is looking at: a master's id, or 'all' (bookings).
   const [calendarChoice, setCalendarChoice] = useState(storedCalendar);
+  // A client picked on the Clients screen to book: the Bookings screen opens
+  // its form with them filled in, then clears this.
+  const [bookingDraft, setBookingDraft] = useState(null);
 
   // Back / Forward between tabs and public pages.
   useEffect(() => {
@@ -195,14 +200,14 @@ export default function App() {
     tabs = ['platform', 'settings'];
   } else if (isSalonOwner) {
     // The landing page tab is there from the start: the salon's own page.
-    tabs = ['dashboard', ...(hasCalendars ? ['bookings'] : []), 'masters', 'categories', 'services',
+    tabs = ['dashboard', ...(hasCalendars ? ['bookings', 'clients'] : []), 'masters', 'categories', 'services',
             ...(hasCalendars ? ['availability'] : []), 'profile', 'taxes', 'settings'];
   } else if (isSalon) {
     // A salon's master: their own calendar, and the part of the salon's price
     // list that is theirs alone (the rest is the owner's).
-    tabs = ['dashboard', 'bookings', 'categories', 'services', 'availability', 'profile', 'settings'];
+    tabs = ['dashboard', 'bookings', 'clients', 'categories', 'services', 'availability', 'profile', 'settings'];
   } else {
-    tabs = ['dashboard', 'bookings', 'categories', 'services', 'availability', 'profile', 'taxes', 'settings'];
+    tabs = ['dashboard', 'bookings', 'clients', 'categories', 'services', 'availability', 'profile', 'taxes', 'settings'];
   }
   if (account.isPlatformAdmin && !tabs.includes('platform')) tabs.push('platform');
   const current = tabs.includes(tab) ? tab : tabs[0];
@@ -278,6 +283,12 @@ export default function App() {
         calendarMaster={calendarMaster}
         allMasters={calendar === 'all'}
         setTab={setTab}
+        bookingDraft={bookingDraft}
+        clearBookingDraft={() => setBookingDraft(null)}
+        onBookClient={(client) => {
+          setBookingDraft(client);
+          setTab('bookings');
+        }}
         setSessionToken={auth.setSessionToken}
         onLogout={auth.logout}
       />

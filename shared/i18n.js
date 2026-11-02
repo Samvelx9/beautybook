@@ -68,6 +68,11 @@ const PLURAL_FORMS = {
     ru: ['визит', 'визита', 'визитов'],
     hy: ['այց'],
   },
+  clients: {
+    en: ['client', 'clients'],
+    ru: ['клиент', 'клиента', 'клиентов'],
+    hy: ['հաճախորդ'],
+  },
 };
 
 export function pluralize(count, lang, noun) {

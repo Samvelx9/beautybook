@@ -79,7 +79,9 @@ const EMPTY_BOOKING_FORM = {
 // For a salon's owner the screen shows one master's calendar — the one picked
 // above it (`calendarMaster`) — or every master's at once (`allMasters`), each
 // booking then carrying its `master_id`. Everyone else sees their own.
-export default function BookingsScreen({ T, lang, onAuthError, account, salon, calendarMaster, allMasters }) {
+export default function BookingsScreen({
+  T, lang, onAuthError, account, salon, calendarMaster, allMasters, bookingDraft, clearBookingDraft,
+}) {
   const masters = (salon?.masters ?? []).filter((m) => m.active);
   const masterName = (id) => {
     const m = masters.find((x) => x.id === id);
@@ -381,14 +383,34 @@ export default function BookingsScreen({ T, lang, onAuthError, account, salon, c
     }
   }
 
-  // `prefill` comes from free time clicked in the day view: that master, then.
+  // A client sent over from the Clients screen: the form opens with them in
+  // it, with the master they usually see when the owner books for the salon.
+  useEffect(() => {
+    if (!bookingDraft) return;
+    const usual = masters.some((m) => m.id === bookingDraft.usual_master_id) ? bookingDraft.usual_master_id : undefined;
+    openAddBooking({ client: bookingDraft, masterId: usual });
+    clearBookingDraft();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // `prefill` comes from free time clicked in the day view (that master,
+  // then), or from "Book" on the Clients screen (that client).
   function openAddBooking(prefill = {}) {
+    const client = prefill.client;
     setBookingForm({
       ...EMPTY_BOOKING_FORM,
       items: [],
       date: prefill.date ?? (cleanupView ? todayStr() : selectedDate || todayStr()),
       masterId: String(prefill.masterId ?? calendarMaster?.id ?? masters[0]?.id ?? ''),
       ...(prefill.time ? { time: prefill.time } : {}),
+      ...(client
+        ? {
+            customerName: client.name,
+            customerPhone: client.phone,
+            allergies: client.allergies ?? '',
+            knownAllergies: client.allergies ?? '',
+          }
+        : {}),
     });
     setError(null);
     setEditingBookingId('new');

@@ -5,6 +5,7 @@ import { MasterDot } from '../masterColors.jsx';
 const TAB_LABEL_KEY = {
   dashboard: 'navDashboard',
   bookings: 'navBookings',
+  clients: 'navClients',
   categories: 'navCategories',
   services: 'navServices',
   availability: 'navAvailability',

@@ -1754,8 +1754,10 @@ test('the booking form finds earlier clients and carries their allergies to the 
   // A later booking saved without a note doesn't hide it either.
   assert.equal((await call('PATCH', `/admin/bookings/${next.body.id}`, { token, body: { allergies: '' } })).status, 200);
   assert.equal((await call('GET', '/admin/clients?q=ани', { token })).body[0].allergies, 'Латекс');
-  // Her latest name is the one suggested.
+  // Her latest name is the one suggested, and the only one matched: "петро"
+  // no longer finds a client now shown as "Ани".
   assert.equal((await call('GET', '/admin/clients?q=ани', { token })).body[0].name, 'Ани');
+  assert.deepEqual((await call('GET', `/admin/clients?q=${encodeURIComponent('петро')}`, { token })).body, []);
 
   // Never to a guest, who only needs her phone number to look her bookings up.
   const lookup = await call('POST', '/bookings/lookup', {
@@ -1780,6 +1782,24 @@ test('the booking form finds earlier clients and carries their allergies to the 
   assert.ok(!JSON.stringify(own.body).includes('Пыльца'));
   const ownListed = (await call('GET', '/admin/bookings', { token })).body.find((b) => b.id === own.body.id);
   assert.equal(ownListed.allergies, 'Пыльца');
+
+  // The client base: one row per phone, with what her bookings add up to.
+  assert.equal((await call('PATCH', `/admin/bookings/${first.body.id}/status`, { token, body: { status: 'completed' } })).status, 200);
+  const base = await call('GET', '/admin/client-base', { token });
+  assert.equal(base.status, 200);
+  assert.equal(base.body.length, 2);
+  const ani = base.body.find((c) => c.phone === '+374 91 123456');
+  assert.equal(ani.name, 'Ани');
+  assert.deepEqual([...ani.names].sort(), ['Ани', 'Ани Петросян']);
+  assert.equal(ani.allergies, 'Латекс');
+  assert.deepEqual([ani.visits, ani.upcoming, ani.no_shows, ani.cancellations], [1, 1, 0, 0]);
+  assert.deepEqual([ani.average_check, ani.spent], [5000, 5000]);
+  assert.equal(ani.zones.length, 1);
+  assert.equal(ani.zones[0].service_id, zone.serviceId);
+  assert.equal(ani.zones[0].count, 2);
+  assert.ok(ani.last_visit && ani.next_visit);
+  // Someone else's clients stay theirs.
+  assert.ok(!(await call('GET', '/admin/client-base', { token: tokenB })).body.some((c) => c.phone === '+374 91 123456'));
 });
 
 test("a salon's owner finds every master's clients; a master only their own", async () => {
@@ -1802,4 +1822,9 @@ test("a salon's owner finds every master's clients; a master only their own", as
   const masterB = await login(rows[0].email, 'correct horse battery');
   assert.equal((await call('GET', '/admin/clients?q=lusine', { token: owner })).body[0]?.allergies, 'Penicillin');
   assert.deepEqual((await call('GET', '/admin/clients?q=lusine', { token: masterB })).body, []);
+
+  // The client base likewise, with the master she usually sees.
+  const ownerBase = (await call('GET', '/admin/client-base', { token: owner })).body;
+  assert.equal(ownerBase.find((c) => c.phone === '+37455000777')?.usual_master_id, a.id);
+  assert.ok(!(await call('GET', '/admin/client-base', { token: masterB })).body.some((c) => c.phone === '+37455000777'));
 });

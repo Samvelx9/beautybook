@@ -173,6 +173,8 @@ export const api = {
     download(`/admin/export/bookings.csv${query({ from, to, masterId })}`, `bookings-${from}-${to}.csv`),
   // Earlier clients matching a name or phone, for the booking form to fill in.
   searchClients: (q) => request(`/admin/clients${query({ q })}`),
+  // Everyone who has booked, with what their bookings say about them.
+  getClientBase: () => request('/admin/client-base'),
   exportClients: ({ masterId } = {}) => download(`/admin/export/clients.csv${query({ masterId })}`, 'clients.csv'),
 
   getFinancials: ({ from, to, masterId } = {}) => request(`/admin/financials${query({ from, to, masterId })}`),

@@ -949,8 +949,8 @@ adminRouter.get('/export/clients.csv', asyncHandler(async (req, res) => {
   );
 }));
 
-// GET /api/admin/clients?q — up to 8 earlier clients whose name (any they
-// booked under) or phone matches, for the booking form to fill in: their
+// GET /api/admin/clients?q — up to 8 earlier clients whose name or phone
+// matches, for the booking form to fill in: their
 // latest name, their phone, and the allergies their latest booking that
 // mentions any gave. The same people the clients export covers — a salon's
 // master their own, the owner the whole organization — most recent first.
@@ -960,26 +960,82 @@ adminRouter.get('/clients', asyncHandler(async (req, res) => {
   const q = cleanString(req.query.q, 50);
   if (q.length < 2) return res.json([]);
   const n = scope.params.length;
-  // Typed as a name, matched anywhere in one; typed as digits, anywhere in the
-  // phone however it was written (spaces, dashes, a leading +).
+  // Typed as a name, matched anywhere in the client's name as it's shown — their
+  // latest one, not any a booking on their phone ever carried (someone booking
+  // for a friend would otherwise make "anna" suggest "Edita"). Typed as digits,
+  // anywhere in the phone however it was written (spaces, dashes, a leading +).
   const pattern = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const digits = q.replace(/\D/g, '');
   const { rows } = await pool.query(
-    `SELECT b.customer_phone AS phone,
-            (array_agg(b.customer_name ORDER BY b.start_time DESC, b.id DESC))[1] AS name,
-            (array_agg(b.allergies ORDER BY b.start_time DESC, b.id DESC)
-               FILTER (WHERE b.allergies IS NOT NULL))[1] AS allergies,
-            COUNT(*) FILTER (WHERE b.status = 'completed')::int AS visits
-     FROM bookings b
-     WHERE ${scope.where}
-     GROUP BY b.customer_phone
-     HAVING bool_or(b.customer_name ILIKE $${n + 1})
-         OR ($${n + 2} <> '' AND regexp_replace(b.customer_phone, '\\D', '', 'g') LIKE '%' || $${n + 2} || '%')
-     ORDER BY MAX(b.start_time) DESC
+    `SELECT phone, name, allergies, visits FROM (
+       SELECT b.customer_phone AS phone,
+              (array_agg(b.customer_name ORDER BY b.start_time DESC, b.id DESC))[1] AS name,
+              (array_agg(b.allergies ORDER BY b.start_time DESC, b.id DESC)
+                 FILTER (WHERE b.allergies IS NOT NULL))[1] AS allergies,
+              COUNT(*) FILTER (WHERE b.status = 'completed')::int AS visits,
+              MAX(b.start_time) AS latest
+       FROM bookings b
+       WHERE ${scope.where}
+       GROUP BY b.customer_phone
+     ) c
+     WHERE c.name ILIKE $${n + 1}
+        OR ($${n + 2} <> '' AND regexp_replace(c.phone, '\\D', '', 'g') LIKE '%' || $${n + 2} || '%')
+     ORDER BY c.latest DESC
      LIMIT 8`,
     [...scope.params, pattern, digits.length >= 3 ? digits : '']
   );
   res.json(rows);
+}));
+
+// GET /api/admin/client-base — everyone who has ever booked, one row per phone
+// number, with what their bookings say about them: the name they're shown
+// under (their latest) and any others they booked under, allergies, visits,
+// what a visit usually costs them, their most booked zones, and — on a salon —
+// the master they usually see. The same people the clients export covers: a
+// salon's master their own, the owner the whole organization. Sorting and
+// filtering are the screen's; a salon's client list is small enough to send
+// whole.
+adminRouter.get('/client-base', asyncHandler(async (req, res) => {
+  const scope = exportScope(req, null);
+  if (scope.error) return res.status(400).json({ error: scope.error });
+  const { rows } = await pool.query(
+    `WITH scoped AS (SELECT b.* FROM bookings b WHERE ${scope.where}),
+     clients AS (
+       SELECT customer_phone AS phone,
+              (array_agg(customer_name ORDER BY start_time DESC, id DESC))[1] AS name,
+              array_agg(DISTINCT customer_name) AS names,
+              (array_agg(allergies ORDER BY start_time DESC, id DESC) FILTER (WHERE allergies IS NOT NULL))[1] AS allergies,
+              COUNT(*) FILTER (WHERE status = 'completed')::int AS visits,
+              COUNT(*) FILTER (WHERE status = 'no_show')::int AS no_shows,
+              COUNT(*) FILTER (WHERE status = 'cancelled')::int AS cancellations,
+              COUNT(*) FILTER (WHERE status = 'confirmed' AND start_time > now())::int AS upcoming,
+              ROUND(AVG(price_at_booking) FILTER (WHERE status = 'completed'))::int AS average_check,
+              COALESCE(SUM(price_at_booking) FILTER (WHERE status = 'completed'), 0)::bigint AS spent,
+              MIN(start_time) FILTER (WHERE status = 'completed') AS first_visit,
+              MAX(start_time) FILTER (WHERE status = 'completed') AS last_visit,
+              MIN(start_time) FILTER (WHERE status = 'confirmed' AND start_time > now()) AS next_visit,
+              MIN(created_at) AS client_since,
+              bool_or(guest_chat_id IS NOT NULL) AS telegram,
+              mode() WITHIN GROUP (ORDER BY master_id) FILTER (WHERE status <> 'cancelled') AS usual_master_id,
+              MAX(start_time) AS latest
+       FROM scoped
+       GROUP BY customer_phone
+     )
+     SELECT c.*, COALESCE(z.zones, '[]'::json) AS zones
+     FROM clients c
+     LEFT JOIN LATERAL (
+       SELECT json_agg(json_build_object('service_id', t.service_id, 'name_en', s.name_en, 'name_ru', s.name_ru,
+                                         'name_hy', s.name_hy, 'count', t.n) ORDER BY t.n DESC, t.service_id) AS zones
+       FROM (SELECT i.service_id, COUNT(*)::int AS n
+             FROM scoped sb JOIN booking_items i ON i.booking_id = sb.id
+             WHERE sb.customer_phone = c.phone AND sb.status <> 'cancelled'
+             GROUP BY i.service_id ORDER BY n DESC, i.service_id LIMIT 3) t
+       JOIN services s ON s.id = t.service_id
+     ) z ON true
+     ORDER BY c.latest DESC`,
+    scope.params
+  );
+  res.json(rows.map(({ latest, ...row }) => ({ ...row, spent: Number(row.spent) })));
 }));
 
 // ---------------------------------------------------------------------------
