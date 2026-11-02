@@ -1765,6 +1765,21 @@ test('the booking form finds earlier clients and carries their allergies to the 
   assert.ok(lookup.body.length > 0);
   assert.ok(!JSON.stringify(lookup.body).includes('Латекс'));
   assert.ok(!JSON.stringify(next.body).includes('Латекс'));
+
+  // A guest may write their own allergies when booking: the master sees them,
+  // the guest's answer doesn't repeat them.
+  const own = await call('POST', '/bookings', {
+    slug: 'allergo',
+    headers: { 'X-Real-IP': '198.51.100.21' },
+    body: {
+      date, time: '14:00', customerName: 'Мариа', customerPhone: '+374 99 000111',
+      items: [{ serviceId: zone.serviceId }], allergies: ' Пыльца ',
+    },
+  });
+  assert.equal(own.status, 201, JSON.stringify(own.body));
+  assert.ok(!JSON.stringify(own.body).includes('Пыльца'));
+  const ownListed = (await call('GET', '/admin/bookings', { token })).body.find((b) => b.id === own.body.id);
+  assert.equal(ownListed.allergies, 'Пыльца');
 });
 
 test("a salon's owner finds every master's clients; a master only their own", async () => {

@@ -267,7 +267,7 @@ const REQUEST_KEY_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
 // One attempt at booking `master`: their price list, their notice and window,
 // their hours, days off and other bookings. Returns { bookingId, minutes } or
 // { status, error, ...details }.
-async function bookWith(master, { date, time, customerName, customerPhone, rawItems, requestKey, guestLang }) {
+async function bookWith(master, { date, time, customerName, customerPhone, allergies, rawItems, requestKey, guestLang }) {
   const resolved = await resolveItems(master, rawItems, { requireActive: true });
   if (resolved.error) {
     return { status: resolved.error === 'service_not_found' ? 404 : 400, error: resolved.error };
@@ -301,6 +301,7 @@ async function bookWith(master, { date, time, customerName, customerPhone, rawIt
       requestKey,
       guestToken: newGuestToken(),
       guestLang,
+      allergies,
     });
     await client.query('COMMIT');
     return { bookingId, minutes: resolved.totalMinutes };
@@ -357,6 +358,8 @@ guestRouter.post('/bookings', bookingLimit, requireOpenPage, asyncHandler(async 
   const time = req.body?.time;
   const customerName = cleanString(req.body?.customerName, 100);
   const customerPhone = cleanString(req.body?.customerPhone, 30);
+  // Optional. Stored for the master's screens only; never sent back to guests.
+  const allergies = cleanString(req.body?.allergies, 500) || null;
   const requestKey = req.body?.requestKey ?? null;
   // The language the guest is reading the site in, for their messages later.
   const guestLang = GUEST_LANGS.includes(req.body?.lang) ? req.body.lang : null;
@@ -377,7 +380,7 @@ guestRouter.post('/bookings', bookingLimit, requireOpenPage, asyncHandler(async 
 
   // One zone or several — a single-zone booking is just a basket of one.
   const rawItems = req.body?.items ?? [{ serviceId: req.body?.serviceId, durationMinutes: req.body?.durationMinutes }];
-  const input = { date, time, customerName, customerPhone, rawItems, requestKey, guestLang };
+  const input = { date, time, customerName, customerPhone, allergies, rawItems, requestKey, guestLang };
 
   let candidates;
   if (req.master) {
@@ -427,6 +430,7 @@ guestRouter.post('/bookings', bookingLimit, requireOpenPage, asyncHandler(async 
     type: 'booking_created',
     booking,
     durationMinutes: result.minutes,
+    allergies,
   });
 }));
 

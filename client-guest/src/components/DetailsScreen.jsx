@@ -52,6 +52,18 @@ export default function DetailsScreen(f) {
           />
         </div>
 
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 18 }}>
+          <label style={{ fontSize: rem(12), color: 'var(--muted)' }}>{T.allergiesLabel}</label>
+          <input
+            type="text"
+            value={f.allergies}
+            maxLength={500}
+            onChange={(e) => f.onAllergiesChange(e.target.value)}
+            placeholder={T.allergiesPlaceholder}
+            style={{ padding: 14, borderRadius: 12, border: '1px solid var(--line)', background: 'var(--surface)', fontSize: rem(15), color: 'var(--ink)' }}
+          />
+        </div>
+
         {f.formError && (
           <p style={{ margin: '14px 0 0', fontSize: rem(12.5), color: 'var(--terracotta)' }}>{T.formError}</p>
         )}

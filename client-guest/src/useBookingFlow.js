@@ -27,6 +27,8 @@ const INITIAL_FLOW_STATE = {
   selectedSlot: null,
   name: '',
   phone: '',
+  // Optional: what the guest is allergic to, for whoever treats them.
+  allergies: '',
   formError: false,
   lookupPhone: '',
   lookupError: false,
@@ -317,6 +319,7 @@ export function useBookingFlow() {
 
   const onNameChange = (value) => patch({ name: value, formError: false });
   const onPhoneChange = (value) => patch({ phone: value, formError: false });
+  const onAllergiesChange = (value) => patch({ allergies: value });
 
   async function confirmBooking() {
     if (!flow.name.trim() || !flow.phone.trim()) {
@@ -331,6 +334,7 @@ export function useBookingFlow() {
       time: flow.selectedSlot,
       customerName: flow.name,
       customerPhone: flow.phone,
+      allergies: flow.allergies.trim(),
       items: basket.zones.map((z) => ({
         serviceId: z.service.id,
         ...(z.service.is_hourly ? { durationMinutes: z.minutes } : {}),
@@ -546,6 +550,7 @@ export function useBookingFlow() {
     backToCalendar,
     onNameChange,
     onPhoneChange,
+    onAllergiesChange,
     confirmBooking,
     bookAnother,
     goToLookup,

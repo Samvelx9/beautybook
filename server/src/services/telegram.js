@@ -25,6 +25,7 @@ const MASTER_TEXT = {
     duration: 'Длительность',
     client: 'Клиент',
     phone: 'Телефон',
+    allergies: 'Аллергии',
     h: 'ч',
     min: 'мин',
     doneBtn: '✅ Завершено',
@@ -55,6 +56,7 @@ const MASTER_TEXT = {
     duration: 'Duration',
     client: 'Client',
     phone: 'Phone',
+    allergies: 'Allergies',
     h: 'h',
     min: 'min',
     doneBtn: '✅ Completed',
@@ -85,6 +87,7 @@ const MASTER_TEXT = {
     duration: 'Տևողություն',
     client: 'Հաճախորդ',
     phone: 'Հեռախոս',
+    allergies: 'Ալերգիաներ',
     h: 'ժ',
     min: 'ր',
     doneBtn: '✅ Կայացավ',
@@ -126,8 +129,10 @@ function formatMessage(master, event) {
   const client = `${T.client}: ${booking.customer_name}\n${T.phone}: ${booking.customer_phone}`;
 
   switch (event.type) {
+    // What the guest wrote about allergies, so the master sees it before the visit.
     case 'booking_created':
-      return `${T.created}\n${T.service}: ${serviceName}\n${T.date}: ${when}\n${duration}${client}`;
+      return `${T.created}\n${T.service}: ${serviceName}\n${T.date}: ${when}\n${duration}${client}` +
+        (event.allergies ? `\n⚠️ ${T.allergies}: ${event.allergies}` : '');
     // A guest moving their own visit is the one change the master doesn't
     // make themselves, so both times matter — they may have written down the
     // first one.
